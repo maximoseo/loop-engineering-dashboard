@@ -3,6 +3,25 @@ export type PhaseStatus = 'pending' | 'active' | 'done' | 'error'
 export type ProposalType = 'memory' | 'skill' | 'prompt' | 'config' | 'mcp'
 export type ProposalStatus = 'proposed' | 'testing' | 'pending_approval' | 'active' | 'rejected' | 'rolled_back'
 export type EvalStatus = 'pass' | 'warn' | 'fail'
+export type DataHealthMode = 'live' | 'demo' | 'partial' | 'error'
+export type LoopTableName =
+  | 'loop_iterations'
+  | 'loop_state'
+  | 'loop_scores'
+  | 'loop_proposals'
+  | 'loop_failure_patterns'
+  | 'loop_lessons'
+  | 'loop_eval_results'
+
+export interface DataHealth {
+  mode: DataHealthMode
+  source: 'supabase' | 'mock'
+  lastSuccessfulFetch: string | null
+  fetchDurationMs: number | null
+  tableCounts: Record<LoopTableName, number | null>
+  staleTables: LoopTableName[]
+  errors: string[]
+}
 
 export interface LoopPhaseState {
   name: LoopPhase

@@ -1,0 +1,6 @@
+.hermes/
+.vexp/
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo

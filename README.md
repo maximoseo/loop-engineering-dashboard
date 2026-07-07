@@ -6,8 +6,9 @@ Self-improving agent loop engineering system — observe, score, learn, propose,
 
 ```bash
 npm install
-npm run dev      # localhost:3000
-npm run build    # production build → dist/
+cp .env.example .env.local  # fill VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+npm run dev                 # localhost:3000
+npm run verify              # lint + unit tests + build + Playwright smoke
 ```
 
 ## Tech Stack
@@ -23,11 +24,12 @@ npm run build    # production build → dist/
 
 - **Loop Visualization** — real-time loop phase tracking (Observe → Score → Learn → Propose → Test → Activate → Monitor)
 - **Score Chart** — 100-point rubric breakdown + 50-iteration trend
-- **Improvement Feed** — skills/memory/prompt/config changes with eval scores
-- **Iteration History** — per-task scores, lessons, proposals, token usage
+- **Improvement Feed** — filterable skills/memory/prompt/config changes with eval scores and copy-only approval handoff
+- **Iteration History** — searchable per-task scores, lessons, proposals, token usage, and detail panels
 - **Failure Library** — known failure patterns with frequency and mitigation
 - **Optimization Backlog** — pending improvement proposals
 - **Eval Results** — regression eval pass/warn/fail status
+- **Production DataHealth** — explicit live/partial/demo/error modes, Supabase table counts, latency, and operator warnings
 
 ## Architecture
 
@@ -35,9 +37,20 @@ See [LOOP_ENGINEERING_PLAN.md](./LOOP_ENGINEERING_PLAN.md) for the full system a
 
 ## Deploy
 
-```bash
-vercel --prod
+Production env vars must be configured in Vercel:
+
+```text
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
 ```
+
+Deploy to the existing project:
+
+```bash
+vercel deploy --prod --yes --scope maximo-seo --no-color
+```
+
+See [`docs/production-runbook.md`](./docs/production-runbook.md) for operating, verification, and rollback steps.
 
 ## Part of
 

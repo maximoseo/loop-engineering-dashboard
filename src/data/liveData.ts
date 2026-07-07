@@ -1,5 +1,6 @@
 import type {
   BacklogItem,
+  DataHealth,
   EvalResult,
   FailurePattern,
   ImprovementProposal,
@@ -7,17 +8,15 @@ import type {
   LoopPhase,
   LoopPhaseState,
   LoopState,
+  LoopTableName,
   ProposalStatus,
   ScoreBreakdown,
 } from '../types.ts'
 import { mockLoopState } from './mockData.ts'
+import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
 
-const SUPABASE_URL: string =
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
-  'https://wtpczvyupmavzrxisvcm.supabase.co'
-const SUPABASE_KEY: string =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
-  'sb_publishable_18clQsCD_wPvkwINu0dSuw_VGDP0iD0'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 const PHASE_ORDER: LoopPhase[] = [
   'OBSERVING',
@@ -29,33 +28,64 @@ const PHASE_ORDER: LoopPhase[] = [
   'MONITORING',
 ]
 
+const hasSupabaseConfig = () => Boolean(SUPABASE_URL && SUPABASE_KEY)
+
+const supabaseHeaders = () => {
+  if (!SUPABASE_KEY) throw new Error('Missing VITE_SUPABASE_ANON_KEY')
+  return {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+  }
+}
+
 async function rest<T>(path: string): Promise<T> {
+  if (!SUPABASE_URL) throw new Error('Missing VITE_SUPABASE_URL')
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: {
-      apikey: SUPABASE_KEY,
-      Authorization: `Bearer ${SUPABASE_KEY}`,
-    },
+    headers: supabaseHeaders(),
   })
   if (!res.ok) throw new Error(`Supabase ${path}: HTTP ${res.status}`)
   return (await res.json()) as T
 }
 
-async function countRows(table: string, filter = ''): Promise<number> {
+async function safeRest<T>(path: string, fallback: T, errors: string[], label: string): Promise<T> {
+  try {
+    return await rest<T>(path)
+  } catch (error) {
+    errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`)
+    return fallback
+  }
+}
+
+async function countRows(table: LoopTableName | 'loop_proposals', filter = ''): Promise<number> {
+  if (!SUPABASE_URL) throw new Error('Missing VITE_SUPABASE_URL')
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/${table}?select=id${filter ? `&${filter}` : ''}`,
     {
       method: 'HEAD',
       headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
+        ...supabaseHeaders(),
         Prefer: 'count=exact',
         Range: '0-0',
       },
     },
   )
+  if (!res.ok) throw new Error(`Supabase ${table}: HTTP ${res.status}`)
   const range = res.headers.get('content-range')
   const total = range?.split('/')[1]
   return total && total !== '*' ? Number(total) : 0
+}
+
+async function safeCountRows(
+  table: LoopTableName | 'loop_proposals',
+  errors: string[],
+  filter = '',
+): Promise<number | null> {
+  try {
+    return await countRows(table, filter)
+  } catch (error) {
+    errors.push(`${table}${filter ? ` (${filter})` : ''}: ${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
 }
 
 interface StateRow {
@@ -158,28 +188,56 @@ function shortTime(iso: string): string {
 export interface LiveResult {
   state: LoopState
   live: boolean
+  health: DataHealth
 }
 
 export async function fetchLoopState(): Promise<LiveResult> {
-  const totalIterations = await countRows('loop_iterations')
-  if (totalIterations === 0) {
-    return { state: mockLoopState, live: false }
+  const startedAt = performance.now()
+  if (!hasSupabaseConfig()) {
+    return {
+      state: mockLoopState,
+      live: false,
+      health: emptyDataHealth('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY'),
+    }
   }
 
-  const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activated, rolledBack] =
+  const errors: string[] = []
+  const countPairs = await Promise.all(
+    requiredLoopTables.map(async (table) => [table, await safeCountRows(table, errors)] as const),
+  )
+  const tableCounts = Object.fromEntries(countPairs) as Record<LoopTableName, number | null>
+  const finishedCountsAt = performance.now()
+  const totalIterations = tableCounts.loop_iterations ?? 0
+  const healthFromCounts = buildDataHealth({
+    tableCounts,
+    errors,
+    startedAt,
+    finishedAt: finishedCountsAt,
+  })
+
+  if (totalIterations === 0) {
+    return { state: mockLoopState, live: false, health: healthFromCounts }
+  }
+
+  const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw] =
     await Promise.all([
-      rest<StateRow[]>('loop_state?id=eq.main'),
-      rest<IterationRow[]>('loop_iterations?order=ts.desc&limit=8'),
-      rest<ScoreRow[]>('loop_scores?order=created_at.desc&limit=60'),
-      rest<ProposalRow[]>('loop_proposals?order=created_at.desc&limit=8'),
-      rest<FailureRow[]>('loop_failure_patterns?order=frequency.desc&limit=8'),
-      rest<LessonRow[]>(
+      safeRest<StateRow[]>('loop_state?id=eq.main', [], errors, 'loop_state'),
+      safeRest<IterationRow[]>('loop_iterations?order=ts.desc&limit=8', [], errors, 'loop_iterations'),
+      safeRest<ScoreRow[]>('loop_scores?order=created_at.desc&limit=60', [], errors, 'loop_scores'),
+      safeRest<ProposalRow[]>('loop_proposals?order=created_at.desc&limit=8', [], errors, 'loop_proposals'),
+      safeRest<FailureRow[]>('loop_failure_patterns?order=frequency.desc&limit=8', [], errors, 'loop_failure_patterns'),
+      safeRest<LessonRow[]>(
         'loop_lessons?lesson_type=eq.optimization&applied=eq.false&order=confidence.desc&limit=6',
+        [],
+        errors,
+        'loop_lessons',
       ),
-      rest<EvalRow[]>('loop_eval_results?order=created_at.desc&limit=32'),
-      countRows('loop_proposals', 'status=eq.active'),
-      countRows('loop_proposals', 'status=eq.rolled_back'),
+      safeRest<EvalRow[]>('loop_eval_results?order=created_at.desc&limit=32', [], errors, 'loop_eval_results'),
+      safeCountRows('loop_proposals', errors, 'status=eq.active'),
+      safeCountRows('loop_proposals', errors, 'status=eq.rolled_back'),
     ])
+  const activated = activatedRaw ?? 0
+  const rolledBack = rolledBackRaw ?? 0
 
   const stateRow = stateRows[0]
   const scoreByTask = new Map(scoreRows.map((s) => [s.task_id, s]))
@@ -188,8 +246,8 @@ export async function fetchLoopState(): Promise<LiveResult> {
   const idFilter = visibleIds.map((id) => `"${id}"`).join(',')
   const [lessonRefs, proposalRefs] = visibleIds.length
     ? await Promise.all([
-        rest<LessonRefRow[]>(`loop_lessons?select=source_task_id&source_task_id=in.(${idFilter})`),
-        rest<ProposalRefRow[]>('loop_proposals?select=proposal_id,source_lessons&limit=200'),
+        safeRest<LessonRefRow[]>(`loop_lessons?select=source_task_id&source_task_id=in.(${idFilter})`, [], errors, 'loop_lesson_refs'),
+        safeRest<ProposalRefRow[]>('loop_proposals?select=proposal_id,source_lessons&limit=200', [], errors, 'loop_proposal_refs'),
       ])
     : [[], []]
   const lessonCount = new Map<string, number>()
@@ -276,7 +334,6 @@ export async function fetchLoopState(): Promise<LiveResult> {
     (e) => e.run_id !== latestRunId && runKind(e.run_id) === latestKind,
   )
   const evalResults: EvalResult[] = latest.map((e) => {
-    // Candidate rows carry their own baseline score; baseline rows compare to the prior baseline run.
     const reference =
       e.baseline_score ?? previousSameKind.find((p) => p.eval_name === e.eval_name)?.score ?? null
     const trend: EvalResult['trend'] =
@@ -326,5 +383,12 @@ export async function fetchLoopState(): Promise<LiveResult> {
     score_trend: scoreTrend.length ? scoreTrend : [0],
   }
 
-  return { state, live: true }
+  const health = buildDataHealth({
+    tableCounts,
+    errors,
+    startedAt,
+    finishedAt: performance.now(),
+  })
+
+  return { state, live: health.mode === 'live' || health.mode === 'partial', health }
 }

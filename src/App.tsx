@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { LoopState } from './types.ts'
+import type { DataHealth, LoopState } from './types.ts'
 import { mockLoopState } from './data/mockData.ts'
+import { emptyDataHealth } from './data/dataHealth.ts'
 import { fetchLoopState } from './data/liveData.ts'
 import { Sidebar } from './components/Sidebar.tsx'
 import { HeroPhase } from './components/HeroPhase.tsx'
@@ -18,6 +19,7 @@ const POLL_MS = 30_000
 
 export default function App() {
   const [state, setState] = useState<LoopState>(mockLoopState)
+  const [health, setHealth] = useState<DataHealth>(() => emptyDataHealth())
   const [live, setLive] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [elapsed, setElapsed] = useState(0)
@@ -31,10 +33,12 @@ export default function App() {
     try {
       const result = await fetchLoopState()
       setState(result.state)
+      setHealth(result.health)
       setLive(result.live)
       setLastUpdated(new Date())
-    } catch {
+    } catch (error) {
       setLive(false)
+      setHealth(emptyDataHealth(error instanceof Error ? error.message : String(error)))
     } finally {
       loadingRef.current = false
       if (manual) setRefreshing(false)
@@ -81,6 +85,7 @@ export default function App() {
 
           {/* Production/data source status */}
           <ProductionStatus
+            health={health}
             live={live}
             isRunning={state.is_loop_running}
             lastUpdated={lastUpdated}

@@ -9,3 +9,10 @@ __pycache__/
 # Local agent/code-index artifacts
 .vexp/
 vexp.toml
+.vercel
+.env*
+!.env.example
+# Local agent/test artifacts
+.hermes/
+test-results/
+playwright-report/
