@@ -49,7 +49,7 @@ export function ImprovementFeed({ improvements }: Props) {
         {improvements.map((imp) => {
           const sc = statusConfig[imp.status]
           const tc = typeConfig[imp.type]
-          const targetName = imp.target.split('\\').pop()?.replace('SKILL.md', '').replace(/-/g, ' ').trim() || imp.target
+          const targetName = imp.target.split(/[\\/]/).pop()?.replace(/SKILL\.md/i, '').replace(/-/g, ' ').trim() || imp.target
           const evalDelta = imp.eval_score_after - imp.eval_score_before
           return (
             <div
