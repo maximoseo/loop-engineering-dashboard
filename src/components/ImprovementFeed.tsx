@@ -7,6 +7,7 @@ interface Props {
 const statusConfig: Record<ProposalStatus, { color: string; icon: string; label: string }> = {
   proposed: { color: 'var(--text-muted)', icon: '📝', label: 'Proposed' },
   testing: { color: 'var(--warning)', icon: '🧪', label: 'Testing' },
+  pending_approval: { color: 'var(--info)', icon: '🔒', label: 'Awaiting Approval' },
   active: { color: 'var(--success)', icon: '✅', label: 'Active' },
   rejected: { color: 'var(--error)', icon: '❌', label: 'Rejected' },
   rolled_back: { color: 'var(--error)', icon: '↩️', label: 'Rolled Back' },

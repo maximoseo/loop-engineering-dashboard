@@ -1,7 +1,7 @@
 export type LoopPhase = 'IDLE' | 'OBSERVING' | 'SCORING' | 'LEARNING' | 'PROPOSING' | 'TESTING' | 'ACTIVATING' | 'MONITORING'
 export type PhaseStatus = 'pending' | 'active' | 'done' | 'error'
 export type ProposalType = 'memory' | 'skill' | 'prompt' | 'config' | 'mcp'
-export type ProposalStatus = 'proposed' | 'testing' | 'active' | 'rejected' | 'rolled_back'
+export type ProposalStatus = 'proposed' | 'testing' | 'pending_approval' | 'active' | 'rejected' | 'rolled_back'
 export type EvalStatus = 'pass' | 'warn' | 'fail'
 
 export interface LoopPhaseState {

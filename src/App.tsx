@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { LoopState } from './types.ts'
 import { mockLoopState } from './data/mockData.ts'
+import { fetchLoopState } from './data/liveData.ts'
 import { MetricsSummary } from './components/MetricsSummary.tsx'
 import { LoopVisualization } from './components/LoopVisualization.tsx'
 import { ScoreChart } from './components/ScoreChart.tsx'
@@ -11,13 +12,37 @@ import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
 import { EvalResults } from './components/EvalResults.tsx'
 import { LoopControlPanel } from './components/LoopControlPanel.tsx'
 
+const POLL_MS = 30_000
+
 export default function App() {
-  const [state] = useState<LoopState>(mockLoopState)
+  const [state, setState] = useState<LoopState>(mockLoopState)
+  const [live, setLive] = useState(false)
   const [time, setTime] = useState(new Date().toISOString())
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date().toISOString()), 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const result = await fetchLoopState()
+        if (!cancelled) {
+          setState(result.state)
+          setLive(result.live)
+        }
+      } catch {
+        if (!cancelled) setLive(false)
+      }
+    }
+    void load()
+    const interval = setInterval(() => void load(), POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [])
 
   return (
@@ -42,8 +67,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-semibold ${live ? 'bg-[var(--success)]/20 text-[var(--success)]' : 'bg-[var(--warning)]/20 text-[var(--warning)]'}`}
+              title={live ? 'Showing live data from Supabase' : 'No live data yet — showing demo data'}
+            >
+              {live ? 'LIVE' : 'DEMO DATA'}
+            </span>
             <span className="text-xs text-[var(--text-muted)] font-mono">{time}</span>
-            <LoopControlPanel isRunning={state.is_loop_running} />
+            <LoopControlPanel isRunning={state.is_loop_running} live={live} />
           </div>
         </div>
       </header>
