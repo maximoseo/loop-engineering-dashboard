@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -52,23 +53,38 @@ def sql_literal(value: Any) -> str:
 
 
 def run_sql(query: str) -> list[dict[str, Any]]:
-    """Executes SQL via the Management API. Requires SUPABASE_ACCESS_TOKEN."""
+    """Executes SQL via the Management API. Requires SUPABASE_ACCESS_TOKEN.
+
+    Retries transient failures (timeouts, 5xx) with backoff so long-running
+    loop phases survive brief Supabase connection blips.
+    """
     token = _access_token()
     if not token:
         raise DbError("SUPABASE_ACCESS_TOKEN not set (scripts/.env)")
-    status, body = _http(
-        f"https://api.supabase.com/v1/projects/{SUPABASE_PROJECT_REF}/database/query",
-        "POST",
-        {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json.dumps({"query": query}).encode(),
-    )
-    if status not in (200, 201):
-        raise DbError(f"management sql HTTP {status}: {body[:300]}")
-    try:
-        parsed = json.loads(body)
-    except ValueError:
-        return []
-    return parsed if isinstance(parsed, list) else []
+    last_error = ""
+    for attempt in range(3):
+        if attempt:
+            time.sleep(5 * attempt)
+        try:
+            status, body = _http(
+                f"https://api.supabase.com/v1/projects/{SUPABASE_PROJECT_REF}/database/query",
+                "POST",
+                {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json.dumps({"query": query}).encode(),
+            )
+        except (TimeoutError, OSError) as exc:
+            last_error = f"network error: {exc}"
+            continue
+        if status in (200, 201):
+            try:
+                parsed = json.loads(body)
+            except ValueError:
+                return []
+            return parsed if isinstance(parsed, list) else []
+        last_error = f"management sql HTTP {status}: {body[:300]}"
+        if status < 500 and status != 429:
+            break
+    raise DbError(last_error)
 
 
 def _rest(path: str, method: str, payload: Any | None, prefer: str | None = None) -> list[dict[str, Any]]:
