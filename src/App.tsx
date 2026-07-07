@@ -14,6 +14,7 @@ import { IterationTimeline } from './components/IterationTimeline.tsx'
 import { FailureLibrary } from './components/FailureLibrary.tsx'
 import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
 import { ProductionStatus } from './components/ProductionStatus.tsx'
+import { NewLoopTask } from './components/NewLoopTask.tsx'
 
 const POLL_MS = 30_000
 
@@ -82,6 +83,9 @@ export default function App() {
             elapsed={elapsed}
             onRefresh={() => void load(true)}
           />
+
+          {/* New task intake */}
+          <NewLoopTask />
 
           {/* Metrics */}
           <MetricsSummary

@@ -14,6 +14,7 @@ type NavItem = { id: string; label: string; icon: string; group: 'Command' | 'Re
 
 const navItems: NavItem[] = [
   { id: 'overview', label: 'Command center', icon: 'grid', group: 'Command' },
+  { id: 'task-intake', label: 'New task', icon: 'terminal', group: 'Command' },
   { id: 'production', label: 'Live data proof', icon: 'database', group: 'Command' },
   { id: 'loop', label: 'Loop phases', icon: 'cycle', group: 'Command' },
   { id: 'improvements', label: 'Proposals', icon: 'sparkles', group: 'Review' },

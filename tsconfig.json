@@ -15,7 +15,8 @@
     "isolatedModules": true,
     "moduleDetection": "force",
     "verbatimModuleSyntax": true,
+    "types": ["node", "vite/client"],
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src", "api"]
 }
