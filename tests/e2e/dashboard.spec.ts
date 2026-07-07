@@ -22,7 +22,7 @@ test('dashboard has a clear operational overview and connected sources', async (
   await expect(page.getByRole('link', { name: /Vercel project opens in a new tab/i })).toHaveAttribute('href', 'https://vercel.com/maximo-seo/loop-engineering-dashboard')
   await expect(page.getByRole('link', { name: /Dashboards panel opens in a new tab/i })).toHaveAttribute('href', 'https://dashboards-panel.maximo-seo.ai')
   await expect(page.getByText('python scripts/loopctl.py approve <proposal-id>')).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Production data details/i })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Live data proof/i })).toBeVisible()
   await expect(page.getByPlaceholder('Search proposals...')).toBeVisible()
   await expect(page.getByPlaceholder('Search iterations by task or id...')).toBeVisible()
 

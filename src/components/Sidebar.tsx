@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 
 interface Props {
@@ -10,30 +10,35 @@ interface Props {
   onRefresh: () => void
 }
 
-const navItems = [
-  { id: 'overview', label: 'Overview', icon: 'grid' },
-  { id: 'agent-ops', label: 'Agent Ops', icon: 'terminal' },
-  { id: 'loop', label: 'Loop Phases', icon: 'cycle' },
-  { id: 'improvements', label: 'Improvements', icon: 'sparkles' },
-  { id: 'evals', label: 'Eval Results', icon: 'check' },
-  { id: 'iterations', label: 'Iterations', icon: 'clock' },
-  { id: 'failures', label: 'Failures', icon: 'alert' },
-  { id: 'backlog', label: 'Backlog', icon: 'list' },
+type NavItem = { id: string; label: string; icon: string; group: 'Command' | 'Review' | 'History' }
+
+const navItems: NavItem[] = [
+  { id: 'overview', label: 'Command center', icon: 'grid', group: 'Command' },
+  { id: 'production', label: 'Live data proof', icon: 'database', group: 'Command' },
+  { id: 'loop', label: 'Loop phases', icon: 'cycle', group: 'Command' },
+  { id: 'improvements', label: 'Proposals', icon: 'sparkles', group: 'Review' },
+  { id: 'evals', label: 'Eval results', icon: 'check', group: 'Review' },
+  { id: 'iterations', label: 'Iterations', icon: 'clock', group: 'History' },
+  { id: 'failures', label: 'Failure library', icon: 'alert', group: 'History' },
+  { id: 'backlog', label: 'Backlog', icon: 'list', group: 'History' },
 ]
+
+const groups: NavItem['group'][] = ['Command', 'Review', 'History']
 
 function NavIcon({ name }: { name: string }) {
   const icons: Record<string, JSX.Element> = {
-    grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
+    grid: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
     cycle: <><path d="M3 12a9 9 0 1 0 9-9" /><path d="M3 4v5h5" /></>,
     sparkles: <><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3z" /></>,
     check: <><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="9" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></>,
     alert: <><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></>,
     list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></>,
-    terminal: <><path d="M4 17l6-5-6-5" /><path d="M12 19h8" /><rect x="2.5" y="4" width="19" height="16" rx="2" /></>,
+    database: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></>,
   }
+
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       {icons[name] ?? icons.grid}
     </svg>
   )
@@ -47,74 +52,80 @@ const formatElapsed = (s: number) => {
 
 export function Sidebar({ isRunning, live, lastUpdated, elapsed, refreshing, onRefresh }: Props) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [activeId, setActiveId] = useState('overview')
   const running = live && isRunning
+
+  useEffect(() => {
+    const sections = navItems
+      .map((item) => document.getElementById(item.id))
+      .filter((section): section is HTMLElement => Boolean(section))
+
+    if (!sections.length) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+        if (visible?.target.id) setActiveId(visible.target.id)
+      },
+      { rootMargin: '-18% 0px -65% 0px', threshold: [0.08, 0.2, 0.4] },
+    )
+
+    sections.forEach((section) => observer.observe(section))
+    return () => observer.disconnect()
+  }, [])
 
   const handleNav = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setActiveId(id)
     setMobileOpen(false)
   }
 
   const sidebarContent = (
     <>
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-6 border-b border-[var(--border-subtle)]">
-        <div className="relative w-10 h-10 shrink-0 rounded-xl bg-[var(--accent)]/15 flex items-center justify-center">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-            <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
-            <circle cx="12" cy="12" r="3" fill="var(--accent)" />
-            <circle cx="12" cy="4" r="1.5" fill="var(--success)" />
-            <circle cx="20" cy="12" r="1.5" fill="var(--warning)" />
-            <circle cx="12" cy="20" r="1.5" fill="var(--error)" />
-            <circle cx="4" cy="12" r="1.5" fill="var(--info)" />
-          </svg>
+      <div className="sidebar-brand">
+        <div className="brand-mark" aria-hidden="true">
+          <span />
         </div>
         <div className="min-w-0">
-          <h1 className="text-sm font-bold text-[var(--text)] truncate">Loop Engineering</h1>
-          <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Dashboard</p>
+          <h1>Loop Engineering</h1>
+          <p>Agent quality control</p>
         </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => handleNav(item.id)}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--accent)]/10 transition-all duration-200 group"
-          >
-            <span className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors">
-              <NavIcon name={item.icon} />
-            </span>
-            {item.label}
-          </button>
+      <nav className="sidebar-nav" aria-label="Dashboard sections">
+        {groups.map((group) => (
+          <div key={group} className="nav-group">
+            <p>{group}</p>
+            <div>
+              {navItems.filter((item) => item.group === group).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleNav(item.id)}
+                  aria-current={activeId === item.id ? 'page' : undefined}
+                  className="nav-item"
+                >
+                  <span className="nav-icon"><NavIcon name={item.icon} /></span>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
-      {/* Status footer */}
-      <div className="px-4 py-4 border-t border-[var(--border-subtle)] space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${running ? 'bg-[var(--success)] animate-pulse' : 'bg-[var(--text-muted)]'}`} />
-            <span className="text-xs text-[var(--text-secondary)]">{running ? 'Loop Active' : 'Loop Idle'}</span>
-          </div>
-          <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${live ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-[var(--warning)]/15 text-[var(--warning)]'}`}
-          >
-            {live ? 'LIVE' : 'DEMO'}
-          </span>
+      <div className="sidebar-status" aria-label="Runtime status">
+        <div className="status-topline">
+          <span className={`runtime-dot ${running ? 'live' : ''}`} />
+          <span>{running ? 'Loop active' : 'Loop idle'}</span>
+          <strong>{live ? 'Live' : 'Demo'}</strong>
         </div>
-        <div className="flex items-center justify-between">
-          {lastUpdated && (
-            <span className="text-[10px] text-[var(--text-muted)] font-mono">{formatElapsed(elapsed)}</span>
-          )}
-          <button
-            onClick={onRefresh}
-            disabled={refreshing}
-            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] border border-[var(--border-default)] hover:border-[var(--border-glow)] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-all disabled:opacity-40"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={refreshing ? 'animate-spin-slow' : ''}>
-              <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
-            </svg>
+        <div className="status-meta">
+          <span>{lastUpdated ? formatElapsed(elapsed) : 'Not synced'}</span>
+          <button type="button" onClick={onRefresh} disabled={refreshing}>
+            <NavIcon name="cycle" />
             {refreshing ? 'Syncing' : 'Refresh'}
           </button>
         </div>
@@ -124,7 +135,6 @@ export function Sidebar({ isRunning, live, lastUpdated, elapsed, refreshing, onR
 
   return (
     <>
-      {/* Mobile toggle */}
       <button
         onClick={() => setMobileOpen(true)}
         className="lg:hidden fixed top-3 left-3 z-40 w-10 h-10 rounded-lg glass flex items-center justify-center text-[var(--text)]"
@@ -135,19 +145,19 @@ export function Sidebar({ isRunning, live, lastUpdated, elapsed, refreshing, onR
         </svg>
       </button>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-52 flex-col glass border-r border-[var(--border-subtle)] z-30">
+      <aside className="sidebar-shell hidden lg:flex">
         {sidebarContent}
       </aside>
 
-      {/* Mobile drawer */}
       {mobileOpen && (
         <>
-          <div
+          <button
+            type="button"
             className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
             onClick={() => setMobileOpen(false)}
+            aria-label="Close navigation overlay"
           />
-          <aside className="lg:hidden fixed left-0 top-0 bottom-0 w-64 flex flex-col glass border-r border-[var(--border-glow)] z-50 animate-slide-in">
+          <aside className="sidebar-shell mobile-drawer lg:hidden animate-slide-in">
             <button
               onClick={() => setMobileOpen(false)}
               className="absolute top-4 right-3 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)]"
