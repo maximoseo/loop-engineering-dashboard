@@ -88,39 +88,39 @@ export function HeroPhase({ phases, currentPhase, isRunning, avgScore, totalIter
 
         {/* Phase info */}
         <div className="flex-1 text-center md:text-left">
-          <div className="flex items-center gap-2 justify-center md:justify-start mb-2">
-            <div
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ background: currentColor, boxShadow: isRunning ? `0 0 12px ${currentColor}` : 'none' }}
-            />
-            <span className="text-xs font-mono uppercase tracking-wider text-[var(--text-muted)]">
-              {isRunning ? 'Current Phase' : 'Loop Status'}
+          <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start mb-3">
+            <span className="rounded-full border border-[var(--accent-cyan)]/25 bg-[var(--accent-cyan)]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--accent-cyan)]">
+              Self-improving agent loop
+            </span>
+            <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-base)]/50 px-3 py-1 text-[11px] font-mono text-[var(--text-secondary)]">
+              {isRunning ? 'running now' : 'waiting for next run'}
             </span>
           </div>
           <h2
-            className="text-3xl md:text-4xl lg:text-5xl font-bold mb-2"
+            className="text-3xl md:text-5xl lg:text-6xl font-bold mb-3 tracking-[-0.05em]"
             style={{ color: isRunning ? currentColor : 'var(--text)', textShadow: isRunning ? `0 0 30px ${currentColor}40` : 'none' }}
           >
-            {isRunning ? currentPhase : 'IDLE'}
+            Agent quality control, not just charts.
           </h2>
-          <p className="text-sm text-[var(--text-secondary)] mb-4 max-w-md">
-            {isRunning
-              ? `Observing, scoring, and learning from agent sessions. ${doneCount} of 7 phases complete.`
-              : 'Awaiting next scheduled run. The loop engine runs locally via Task Scheduler.'}
+          <p className="text-sm md:text-base text-[var(--text-secondary)] mb-5 max-w-2xl leading-7">
+            Current phase: <strong className="text-[var(--text)]">{isRunning ? currentPhase : 'IDLE'}</strong>. The dashboard watches real loop telemetry, explains what the agents are learning, and gives operators safe approval handoffs before changes go live.
           </p>
 
           {/* Quick stats inline */}
-          <div className="flex gap-6 justify-center md:justify-start">
-            <div>
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-6 justify-center md:justify-start">
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]/45 px-4 py-3">
               <div className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-0.5">Avg Score</div>
               <div className="text-xl font-bold font-mono" style={{ color: avgScore >= 70 ? 'var(--success)' : avgScore >= 50 ? 'var(--warning)' : 'var(--error)' }}>
                 {avgScore}<span className="text-xs text-[var(--text-muted)]">/100</span>
               </div>
             </div>
-            <div className="w-px bg-[var(--border-subtle)]" />
-            <div>
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-base)]/45 px-4 py-3">
               <div className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-0.5">Iterations</div>
               <div className="text-xl font-bold font-mono text-[var(--text)]">{totalIterations}</div>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <a href="#agent-ops" className="action-button primary">Understand & operate</a>
+              <a href="#improvements" className="action-button">Review proposals</a>
             </div>
           </div>
         </div>

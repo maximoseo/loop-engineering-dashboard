@@ -12,6 +12,7 @@ interface Props {
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: 'grid' },
+  { id: 'agent-ops', label: 'Agent Ops', icon: 'terminal' },
   { id: 'loop', label: 'Loop Phases', icon: 'cycle' },
   { id: 'improvements', label: 'Improvements', icon: 'sparkles' },
   { id: 'evals', label: 'Eval Results', icon: 'check' },
@@ -29,6 +30,7 @@ function NavIcon({ name }: { name: string }) {
     clock: <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></>,
     alert: <><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></>,
     list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></>,
+    terminal: <><path d="M4 17l6-5-6-5" /><path d="M12 19h8" /><rect x="2.5" y="4" width="19" height="16" rx="2" /></>,
   }
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

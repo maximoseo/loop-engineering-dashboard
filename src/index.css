@@ -173,3 +173,48 @@ body::before {
 .scroll-fade {
   mask-image: linear-gradient(to bottom, black 90%, transparent 100%);
 }
+
+/* Production dashboard primitives */
+.panel-shell {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015)),
+    rgba(13, 13, 31, 0.72);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255,255,255,0.04);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.action-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--border-default);
+  background: rgba(20, 20, 43, 0.72);
+  color: var(--text-secondary);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.action-button:hover {
+  border-color: rgba(6, 182, 212, 0.45);
+  background: rgba(6, 182, 212, 0.09);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.action-button.primary {
+  border-color: rgba(34, 211, 238, 0.45);
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(139, 92, 246, 0.18));
+  color: #ecfeff;
+}
+
+html {
+  scroll-behavior: smooth;
+}

@@ -14,6 +14,7 @@ import { IterationTimeline } from './components/IterationTimeline.tsx'
 import { FailureLibrary } from './components/FailureLibrary.tsx'
 import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
 import { ProductionStatus } from './components/ProductionStatus.tsx'
+import { AgentOperationsHub } from './components/AgentOperationsHub.tsx'
 
 const POLL_MS = 30_000
 
@@ -81,6 +82,15 @@ export default function App() {
             isRunning={state.is_loop_running}
             avgScore={state.avg_score_7d}
             totalIterations={state.total_iterations}
+          />
+
+          {/* Agent operations / what this does */}
+          <AgentOperationsHub
+            state={state}
+            health={health}
+            live={live}
+            elapsed={elapsed}
+            onRefresh={() => void load(true)}
           />
 
           {/* Production/data source status */}
