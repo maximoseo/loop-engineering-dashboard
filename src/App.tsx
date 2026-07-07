@@ -2,15 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { LoopState } from './types.ts'
 import { mockLoopState } from './data/mockData.ts'
 import { fetchLoopState } from './data/liveData.ts'
+import { Sidebar } from './components/Sidebar.tsx'
+import { HeroPhase } from './components/HeroPhase.tsx'
+import { PhaseTimeline } from './components/PhaseTimeline.tsx'
 import { MetricsSummary } from './components/MetricsSummary.tsx'
-import { LoopVisualization } from './components/LoopVisualization.tsx'
 import { ScoreChart } from './components/ScoreChart.tsx'
-import { IterationTimeline } from './components/IterationTimeline.tsx'
 import { ImprovementFeed } from './components/ImprovementFeed.tsx'
+import { EvalResults } from './components/EvalResults.tsx'
+import { IterationTimeline } from './components/IterationTimeline.tsx'
 import { FailureLibrary } from './components/FailureLibrary.tsx'
 import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
-import { EvalResults } from './components/EvalResults.tsx'
-import { LoopControlPanel } from './components/LoopControlPanel.tsx'
 
 const POLL_MS = 30_000
 
@@ -53,106 +54,70 @@ export default function App() {
     return () => clearInterval(tick)
   }, [lastUpdated])
 
-  const formatElapsed = (s: number) => {
-    if (s < 60) return `${s}s ago`
-    if (s < 3600) return `${Math.floor(s / 60)}m ago`
-    return `${Math.floor(s / 3600)}h ago`
-  }
-
   return (
-    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text)] p-3 sm:p-4 md:p-6 lg:p-8">
-      {/* Header */}
-      <header className="mb-4 md:mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 shrink-0 rounded-lg bg-[var(--accent)]/20 flex items-center justify-center">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
-                <circle cx="12" cy="12" r="8" strokeDasharray="3 3" />
-                <circle cx="12" cy="12" r="3" fill="var(--accent)" />
-                <circle cx="12" cy="4" r="1.5" fill="var(--success)" />
-                <circle cx="20" cy="12" r="1.5" fill="var(--warning)" />
-                <circle cx="12" cy="20" r="1.5" fill="var(--error)" />
-                <circle cx="4" cy="12" r="1.5" fill="var(--info)" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-base sm:text-lg md:text-xl font-bold">Loop Engineering Dashboard</h1>
-              <p className="text-xs text-[var(--text-muted)]">Self-improving agent loop system</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs font-semibold ${live ? 'bg-[var(--success)]/20 text-[var(--success)]' : 'bg-[var(--warning)]/20 text-[var(--warning)]'}`}
-              title={live ? 'Showing live data from Supabase' : 'No live data yet — showing demo data'}
-            >
-              {live ? 'LIVE' : 'DEMO'}
-            </span>
-            <LoopControlPanel isRunning={state.is_loop_running} live={live} />
-          </div>
-        </div>
-      </header>
-
-      {/* Metric Cards */}
-      <MetricsSummary
-        avgScore={state.avg_score_7d}
-        totalIterations={state.total_iterations}
-        activated={state.improvements_activated}
-        rolledBack={state.improvements_rolled_back}
+    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text)]">
+      <Sidebar
+        isRunning={state.is_loop_running}
+        live={live}
+        lastUpdated={lastUpdated}
+        elapsed={elapsed}
+        refreshing={refreshing}
+        onRefresh={() => void load(true)}
       />
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mt-3 sm:mt-4">
-        {/* Loop Visualization */}
-        <div className="lg:col-span-1">
-          <LoopVisualization phases={state.phases} currentPhase={state.current_phase} isRunning={state.is_loop_running} />
-        </div>
+      {/* Main content */}
+      <main className="lg:ml-60 relative z-10">
+        <div className="px-3 py-4 sm:px-5 md:px-8 md:py-6 lg:px-10 lg:py-8 max-w-[1600px] mx-auto space-y-4 md:space-y-6">
 
-        {/* Score Trend */}
-        <div className="lg:col-span-1">
-          <ScoreChart trend={state.score_trend} lastScore={state.last_score} />
-        </div>
-      </div>
+          {/* Hero */}
+          <HeroPhase
+            phases={state.phases}
+            currentPhase={state.current_phase}
+            isRunning={state.is_loop_running}
+            avgScore={state.avg_score_7d}
+            totalIterations={state.total_iterations}
+          />
 
-      {/* Improvements + Eval Results */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 mt-3 sm:mt-4">
-        <div className="lg:col-span-2">
-          <ImprovementFeed improvements={state.recent_improvements} />
-        </div>
-        <div className="lg:col-span-1">
-          <EvalResults results={state.eval_results} runLabel={state.eval_run_label} />
-        </div>
-      </div>
+          {/* Metrics */}
+          <MetricsSummary
+            avgScore={state.avg_score_7d}
+            totalIterations={state.total_iterations}
+            activated={state.improvements_activated}
+            rolledBack={state.improvements_rolled_back}
+            scoreTrend={state.score_trend}
+          />
 
-      {/* Iteration Timeline */}
-      <div className="mt-3 sm:mt-4">
-        <IterationTimeline iterations={state.recent_iterations} />
-      </div>
-
-      {/* Failure Library + Optimization Backlog */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mt-3 sm:mt-4">
-        <FailureLibrary failures={state.failure_library} />
-        <OptimizationBacklog backlog={state.optimization_backlog} />
-      </div>
-
-      {/* Footer */}
-      <footer className="mt-6 md:mt-8 pt-4 border-t border-[var(--border)]">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[var(--text-dim)]">
-          <p>Loop Engineering Dashboard · Maximo SEO · <a href="https://github.com/maximoseo/loop-engineering-dashboard" className="text-[var(--accent)] hover:underline">GitHub</a></p>
-          <div className="flex items-center gap-3">
-            {lastUpdated && (
-              <span className="text-[var(--text-muted)]">Data updated {formatElapsed(elapsed)}</span>
-            )}
-            <button
-              onClick={() => void load(true)}
-              disabled={refreshing}
-              className="px-2 py-1 rounded text-xs border border-[var(--border)] hover:border-[var(--accent)] text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors disabled:opacity-50"
-              aria-label="Refresh data manually"
-            >
-              {refreshing ? 'Refreshing...' : 'Refresh'}
-            </button>
+          {/* Phase Timeline + Score Chart */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+            <PhaseTimeline phases={state.phases} currentPhase={state.current_phase} />
+            <ScoreChart trend={state.score_trend} lastScore={state.last_score} />
           </div>
+
+          {/* Improvements + Evals */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+            <div className="lg:col-span-2">
+              <ImprovementFeed improvements={state.recent_improvements} />
+            </div>
+            <div className="lg:col-span-1">
+              <EvalResults results={state.eval_results} runLabel={state.eval_run_label} />
+            </div>
+          </div>
+
+          {/* Iteration Timeline */}
+          <IterationTimeline iterations={state.recent_iterations} />
+
+          {/* Failures + Backlog */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+            <FailureLibrary failures={state.failure_library} />
+            <OptimizationBacklog backlog={state.optimization_backlog} />
+          </div>
+
+          {/* Footer */}
+          <footer className="pt-6 pb-2 text-center text-xs text-[var(--text-dim)]">
+            <p>Loop Engineering Dashboard · Maximo SEO · <a href="https://github.com/maximoseo/loop-engineering-dashboard" className="text-[var(--accent-bright)] hover:underline">GitHub</a></p>
+          </footer>
         </div>
-      </footer>
+      </main>
     </div>
   )
 }

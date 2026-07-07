@@ -5,14 +5,14 @@ interface Props {
   runLabel?: string
 }
 
-const statusConfig: Record<EvalStatus, { color: string; icon: string }> = {
-  pass: { color: 'var(--success)', icon: '✅' },
-  warn: { color: 'var(--warning)', icon: '⚠️' },
-  fail: { color: 'var(--error)', icon: '❌' },
+const statusConfig: Record<EvalStatus, { color: string; label: string }> = {
+  pass: { color: '#22d3ee', label: 'Pass' },
+  warn: { color: '#fbbf24', label: 'Warn' },
+  fail: { color: '#f87171', label: 'Fail' },
 }
 
-const trendIcon = { up: '↗', down: '↘', stable: '→' }
-const trendColor = { up: 'var(--success)', down: 'var(--error)', stable: 'var(--text-muted)' }
+const trendIcon = { up: '↑', down: '↓', stable: '→' }
+const trendColor = { up: '#22d3ee', down: '#f87171', stable: '#71717a' }
 
 export function EvalResults({ results, runLabel }: Props) {
   const passCount = results.filter(r => r.status === 'pass').length
@@ -23,37 +23,57 @@ export function EvalResults({ results, runLabel }: Props) {
     : 0
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 h-full">
-      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-        <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider">Eval Results</h2>
+    <div id="evals" className="rounded-2xl glass gradient-border p-5 md:p-6 h-full animate-fade-in delay-3">
+      <div className="flex items-center justify-between gap-2 mb-5 flex-wrap">
+        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Eval Results</h3>
         {runLabel && (
-          <span className="text-xs px-2 py-1 rounded bg-[var(--accent)]/15 text-[var(--accent)]" title="Which regression eval run these scores come from">
+          <span className="text-[10px] px-2 py-1 rounded-lg font-mono" style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa' }}>
             {runLabel}
           </span>
         )}
       </div>
 
-      <div className="flex gap-3 mb-4 text-xs">
-        <span className="text-[var(--success)]">✅ {passCount} pass</span>
-        <span className="text-[var(--warning)]">⚠️ {warnCount} warn</span>
-        {failCount > 0 && <span className="text-[var(--error)]">❌ {failCount} fail</span>}
-        <span className="text-[var(--text-muted)] ml-auto">Avg: {avgScore}/100</span>
+      {/* Summary bar */}
+      <div className="flex items-center gap-4 mb-5 text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full" style={{ background: '#22d3ee' }} />
+          <span className="text-[var(--text-secondary)] font-mono">{passCount} pass</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full" style={{ background: '#fbbf24' }} />
+          <span className="text-[var(--text-secondary)] font-mono">{warnCount} warn</span>
+        </div>
+        {failCount > 0 && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full" style={{ background: '#f87171' }} />
+            <span className="text-[var(--text-secondary)] font-mono">{failCount} fail</span>
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-[var(--text-muted)] text-[10px] uppercase tracking-wider">Avg</span>
+          <span className="text-lg font-bold font-mono" style={{ color: avgScore >= 80 ? '#22d3ee' : avgScore >= 60 ? '#fbbf24' : '#f87171' }}>
+            {avgScore}
+          </span>
+        </div>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {results.length === 0 ? (
-          <p className="text-sm text-[var(--text-dim)] text-center py-4">No eval results yet</p>
+          <p className="text-sm text-[var(--text-dim)] text-center py-8">No eval results yet</p>
         ) : (
           results.map((r) => {
             const sc = statusConfig[r.status]
             return (
-              <div key={r.name} className="flex items-center gap-2">
-                <span className="text-sm shrink-0">{sc.icon}</span>
-                <span className="text-sm flex-1 truncate">{r.name}</span>
-                <span className="text-xs shrink-0" style={{ color: trendColor[r.trend] }}>{trendIcon[r.trend]}</span>
-                <span className="text-sm font-semibold shrink-0" style={{ color: sc.color }}>{r.score}</span>
-                <div className="w-12 sm:w-16 h-1.5 bg-[var(--border)] rounded-full overflow-hidden shrink-0">
-                  <div className="h-full rounded-full" style={{ width: `${r.score}%`, background: sc.color }} />
+              <div key={r.name} className="group flex items-center gap-3 py-1.5 transition-all">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ background: sc.color, boxShadow: `0 0 6px ${sc.color}60` }} />
+                <span className="text-sm flex-1 truncate text-[var(--text-secondary)] group-hover:text-[var(--text)] transition-colors">{r.name}</span>
+                <span className="text-xs font-mono shrink-0" style={{ color: trendColor[r.trend] }}>{trendIcon[r.trend]}</span>
+                <span className="text-sm font-bold font-mono shrink-0 w-8 text-right" style={{ color: sc.color }}>{r.score}</span>
+                <div className="w-20 sm:w-28 h-1.5 rounded-full overflow-hidden shrink-0" style={{ background: 'rgba(139,92,246,0.08)' }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${r.score}%`, background: sc.color, boxShadow: `0 0 4px ${sc.color}50` }}
+                  />
                 </div>
               </div>
             )
