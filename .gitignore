@@ -5,3 +5,7 @@ dist/
 /data/
 __pycache__/
 *.pyc
+
+# Local agent/code-index artifacts
+.vexp/
+vexp.toml

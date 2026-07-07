@@ -107,3 +107,35 @@ scripts/evals.json       8 behavioral regression evals
 supabase/migrations/     schema
 data/                    (gitignored) iteration logs, watermark, locks, rollback snapshots
 ```
+
+---
+
+## 12. Improvement Roadmap — Existing Repo / Existing Vercel Dashboard
+
+The next workstream targets the existing production system only:
+
+- **GitHub repo:** `maximoseo/loop-engineering-dashboard`
+- **Branch target:** `main` via feature branches / PRs
+- **Vercel project:** `loop-engineering-dashboard`
+- **Production URL:** https://loop-engineering-dashboard.vercel.app
+- **Dashboard of Dashboards:** card should open the production URL, not the Vercel admin page
+
+Full roadmap: [`docs/loop-engineering-dashboard-improvement-roadmap.md`](./docs/loop-engineering-dashboard-improvement-roadmap.md).
+
+### 12.1 Priority improvements
+
+1. Make live/demo/partial/error data source status explicit in the UI.
+2. Add operational health signals: freshness, eval recency, rollback rate, pending approvals.
+3. Add drill-down drawers for iterations, proposals, and failure patterns.
+4. Keep the public dashboard read-only; all mutation remains local/controlled by `scripts/loopctl.py`.
+5. Register and verify the dashboard in the Dashboard of Dashboards with correct GitHub/Vercel/source links.
+
+### 12.2 Production QA checklist
+
+- `npm run lint` passes.
+- `npm run build` passes.
+- Vercel deployment is `Ready`.
+- `https://loop-engineering-dashboard.vercel.app` returns HTTP 200 with Vercel headers.
+- Browser QA has no console errors on desktop and mobile.
+- Dashboard of Dashboards includes exactly one active card for this dashboard.
+

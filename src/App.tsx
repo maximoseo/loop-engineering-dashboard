@@ -12,6 +12,7 @@ import { EvalResults } from './components/EvalResults.tsx'
 import { IterationTimeline } from './components/IterationTimeline.tsx'
 import { FailureLibrary } from './components/FailureLibrary.tsx'
 import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
+import { ProductionStatus } from './components/ProductionStatus.tsx'
 
 const POLL_MS = 30_000
 
@@ -76,6 +77,20 @@ export default function App() {
             isRunning={state.is_loop_running}
             avgScore={state.avg_score_7d}
             totalIterations={state.total_iterations}
+          />
+
+          {/* Production/data source status */}
+          <ProductionStatus
+            live={live}
+            isRunning={state.is_loop_running}
+            lastUpdated={lastUpdated}
+            elapsed={elapsed}
+            totalIterations={state.total_iterations}
+            avgScore={state.avg_score_7d}
+            activated={state.improvements_activated}
+            rolledBack={state.improvements_rolled_back}
+            evalCount={state.eval_results.length}
+            backlogCount={state.optimization_backlog.length}
           />
 
           {/* Metrics */}
