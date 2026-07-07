@@ -85,44 +85,36 @@ export function ProductionStatus({
   ]
 
   return (
-    <section id="production" className="glass gradient-border rounded-2xl p-4 md:p-5 animate-fade-in">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="space-y-2">
+    <section id="production" className="glass rounded-2xl p-4 animate-fade-in">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.18em]"
+              className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em]"
               style={{ background: `${mc.color}18`, color: mc.color }}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: mc.color }} />
               {mc.label}
             </span>
-            <span className="rounded-full border border-[var(--border-default)] px-3 py-1 text-xs text-[var(--text-secondary)]">
-              Vercel project: <strong className="text-[var(--text)]">loop-engineering-dashboard</strong>
-            </span>
+            <span className="text-xs text-[var(--text-muted)]">Supabase + Vercel runtime detail</span>
           </div>
-          <div>
-            <h2 className="text-lg md:text-xl font-bold text-[var(--text)]">Production & data-source status</h2>
-            <p className="mt-1 max-w-3xl text-sm text-[var(--text-secondary)]">
-              Real-world operating status for the existing GitHub repo, existing Vercel deployment, and Supabase data layer.
-              Partial/error states are explicit so operators never mistake stale or demo data for live telemetry.
-            </p>
-          </div>
+          <h2 className="text-base font-bold text-[var(--text)]">Production data details</h2>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
-          <a className="rounded-xl border border-[var(--border-default)] px-3 py-2 text-[var(--accent-bright)] hover:border-[var(--border-glow)]" href={productionUrl} target="_blank" rel="noreferrer">
+        <div className="flex flex-wrap gap-2 text-xs">
+          <a className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-[var(--accent-bright)] hover:border-[var(--border-glow)]" href={productionUrl} target="_blank" rel="noreferrer">
             Production ↗
           </a>
-          <a className="rounded-xl border border-[var(--border-default)] px-3 py-2 text-[var(--accent-bright)] hover:border-[var(--border-glow)]" href={githubUrl} target="_blank" rel="noreferrer">
+          <a className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-[var(--accent-bright)] hover:border-[var(--border-glow)]" href={githubUrl} target="_blank" rel="noreferrer">
             GitHub repo ↗
           </a>
-          <a className="rounded-xl border border-[var(--border-default)] px-3 py-2 text-[var(--accent-bright)] hover:border-[var(--border-glow)]" href={dashboardPanelUrl} target="_blank" rel="noreferrer">
+          <a className="rounded-lg border border-[var(--border-default)] px-3 py-2 text-[var(--accent-bright)] hover:border-[var(--border-glow)]" href={dashboardPanelUrl} target="_blank" rel="noreferrer">
             Dashboards panel ↗
           </a>
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="mt-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
         {signals.map((signal) => (
           <div key={signal.label} className="rounded-xl bg-[var(--bg-elevated)]/50 border border-[var(--border-subtle)] p-3">
             <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">{signal.label}</p>

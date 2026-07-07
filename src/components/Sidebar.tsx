@@ -136,7 +136,7 @@ export function Sidebar({ isRunning, live, lastUpdated, elapsed, refreshing, onR
       </button>
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-60 flex-col glass border-r border-[var(--border-subtle)] z-30">
+      <aside className="hidden lg:flex fixed left-0 top-0 bottom-0 w-52 flex-col glass border-r border-[var(--border-subtle)] z-30">
         {sidebarContent}
       </aside>
 

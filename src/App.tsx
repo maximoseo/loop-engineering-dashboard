@@ -4,7 +4,7 @@ import { mockLoopState } from './data/mockData.ts'
 import { emptyDataHealth } from './data/dataHealth.ts'
 import { fetchLoopState } from './data/liveData.ts'
 import { Sidebar } from './components/Sidebar.tsx'
-import { HeroPhase } from './components/HeroPhase.tsx'
+import { OperationalOverview } from './components/OperationalOverview.tsx'
 import { PhaseTimeline } from './components/PhaseTimeline.tsx'
 import { MetricsSummary } from './components/MetricsSummary.tsx'
 import { ScoreChart } from './components/ScoreChart.tsx'
@@ -14,7 +14,6 @@ import { IterationTimeline } from './components/IterationTimeline.tsx'
 import { FailureLibrary } from './components/FailureLibrary.tsx'
 import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
 import { ProductionStatus } from './components/ProductionStatus.tsx'
-import { AgentOperationsHub } from './components/AgentOperationsHub.tsx'
 
 const POLL_MS = 30_000
 
@@ -72,40 +71,16 @@ export default function App() {
       />
 
       {/* Main content */}
-      <main className="lg:ml-60 relative z-10">
-        <div className="px-3 py-4 sm:px-5 md:px-8 md:py-6 lg:px-10 lg:py-8 max-w-[1600px] mx-auto space-y-4 md:space-y-6">
+      <main className="dashboard-main relative z-10">
+        <div className="dashboard-content">
 
-          {/* Hero */}
-          <HeroPhase
-            phases={state.phases}
-            currentPhase={state.current_phase}
-            isRunning={state.is_loop_running}
-            avgScore={state.avg_score_7d}
-            totalIterations={state.total_iterations}
-          />
-
-          {/* Agent operations / what this does */}
-          <AgentOperationsHub
+          {/* Clear operational overview */}
+          <OperationalOverview
             state={state}
             health={health}
             live={live}
             elapsed={elapsed}
             onRefresh={() => void load(true)}
-          />
-
-          {/* Production/data source status */}
-          <ProductionStatus
-            health={health}
-            live={live}
-            isRunning={state.is_loop_running}
-            lastUpdated={lastUpdated}
-            elapsed={elapsed}
-            totalIterations={state.total_iterations}
-            avgScore={state.avg_score_7d}
-            activated={state.improvements_activated}
-            rolledBack={state.improvements_rolled_back}
-            evalCount={state.eval_results.length}
-            backlogCount={state.optimization_backlog.length}
           />
 
           {/* Metrics */}
@@ -122,6 +97,21 @@ export default function App() {
             <PhaseTimeline phases={state.phases} currentPhase={state.current_phase} />
             <ScoreChart trend={state.score_trend} lastScore={state.last_score} />
           </div>
+
+          {/* Production/data source details */}
+          <ProductionStatus
+            health={health}
+            live={live}
+            isRunning={state.is_loop_running}
+            lastUpdated={lastUpdated}
+            elapsed={elapsed}
+            totalIterations={state.total_iterations}
+            avgScore={state.avg_score_7d}
+            activated={state.improvements_activated}
+            rolledBack={state.improvements_rolled_back}
+            evalCount={state.eval_results.length}
+            backlogCount={state.optimization_backlog.length}
+          />
 
           {/* Improvements + Evals */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
