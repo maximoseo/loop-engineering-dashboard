@@ -75,7 +75,10 @@ export default function App() {
       <main className="dashboard-main relative z-10">
         <div className="dashboard-content">
 
-          {/* Clear operational overview */}
+          {/* Primary task command workbench */}
+          <NewLoopTask />
+
+          {/* Compact operational overview */}
           <OperationalOverview
             state={state}
             health={health}
@@ -83,9 +86,6 @@ export default function App() {
             elapsed={elapsed}
             onRefresh={() => void load(true)}
           />
-
-          {/* New task intake */}
-          <NewLoopTask />
 
           {/* Metrics */}
           <MetricsSummary

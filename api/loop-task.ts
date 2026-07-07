@@ -25,6 +25,27 @@ const validKinds = new Set(['agent-run', 'project', 'debug', 'dashboard', 'propo
 const validPriorities = new Set(['normal', 'high', 'urgent'])
 const validDestinations = new Set(['auto', 'telegram', 'worker-webhook'])
 
+function deliveryReadiness() {
+  const publicDeliveryEnabled = process.env.LOOP_TASK_PUBLIC_ENABLED === 'true'
+  const telegramConfigured = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID)
+  const webhookConfigured = Boolean(process.env.LOOP_TASK_WEBHOOK_URL)
+  const defaultRoute = !publicDeliveryEnabled
+    ? 'blocked_config'
+    : webhookConfigured
+      ? 'worker-webhook'
+      : telegramConfigured
+        ? 'telegram'
+        : 'blocked_config'
+
+  return {
+    api: 'ready',
+    publicDeliveryEnabled,
+    telegramConfigured,
+    webhookConfigured,
+    defaultRoute,
+  }
+}
+
 function step(label: string, state: StepState, detail: string) {
   return { label, state, detail }
 }
@@ -46,6 +67,46 @@ function escapeHtml(input: string) {
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
+}
+
+function processForInvalidInput() {
+  return [
+    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Validate scope', 'error', 'Task text must be between 10 and 4000 characters.'),
+    step('Route to bot / worker', 'blocked', 'Nothing was delivered.'),
+    step('Run / wait for agent', 'blocked', 'Agent run did not start.'),
+    step('Verify & report back', 'blocked', 'Fix the task text and send again.'),
+  ]
+}
+
+function processForDisabledDelivery() {
+  return [
+    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Validate scope', 'done', 'Payload is valid and ready for routing.'),
+    step('Route to bot / worker', 'blocked', 'Delivery is disabled by Vercel env.'),
+    step('Run / wait for agent', 'blocked', 'No bot or worker run was started.'),
+    step('Verify & report back', 'blocked', 'Enable delivery env before tasks can run behind the scenes.'),
+  ]
+}
+
+function processForMissingChannel() {
+  return [
+    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Validate scope', 'done', 'Payload is valid and scoped.'),
+    step('Route to bot / worker', 'blocked', 'No Telegram or webhook destination exists.'),
+    step('Run / wait for agent', 'blocked', 'No bot or worker accepted the task.'),
+    step('Verify & report back', 'blocked', 'Configure a delivery channel and send again.'),
+  ]
+}
+
+function processForDelivered(channel: 'telegram' | 'worker-webhook') {
+  return [
+    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Validate scope', 'done', 'Payload is valid and scoped.'),
+    step('Route to bot / worker', 'done', channel === 'telegram' ? 'Telegram accepted the task.' : 'Webhook accepted the task.'),
+    step('Run / wait for agent', 'active', 'The external bot/worker now owns execution and follow-up.'),
+    step('Verify & report back', 'pending', 'Wait for the agent result, then verify the dashboard/output.'),
+  ]
 }
 
 async function sendTelegram(payload: { id: string; task: string; kind: string; priority: string }) {
@@ -87,9 +148,15 @@ async function sendWebhook(payload: { id: string; task: string; kind: string; pr
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
+  const readiness = deliveryReadiness()
+
+  if (req.method === 'GET') {
+    res.status(200).json({ ok: true, deliveryReadiness: readiness })
+    return
+  }
 
   if (req.method !== 'POST') {
-    res.status(405).json({ ok: false, message: 'Use POST' })
+    res.status(405).json({ ok: false, message: 'Use GET for status or POST to send a task.', deliveryReadiness: readiness })
     return
   }
 
@@ -108,71 +175,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       taskId: id,
       status: 'failed',
       destination,
+      deliveryReadiness: readiness,
       message: 'Task must be between 10 and 4000 characters.',
-      process: [
-        step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
-        step('Validate scope', 'error', 'Task text length is invalid.'),
-        step('Send to bot / worker', 'blocked', 'Nothing was delivered.'),
-        step('Track process', 'blocked', 'Fix the task text and send again.'),
-      ],
+      process: processForInvalidInput(),
     })
     return
   }
 
-  if (process.env.LOOP_TASK_PUBLIC_ENABLED !== 'true') {
+  if (!readiness.publicDeliveryEnabled) {
     res.status(202).json({
       ok: false,
       taskId: id,
       status: 'blocked_config',
       destination,
+      deliveryReadiness: readiness,
       message: 'Backend intake is installed, but public task delivery is disabled. Set LOOP_TASK_PUBLIC_ENABLED=true after choosing Telegram or webhook delivery.',
-      process: [
-        step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
-        step('Validate scope', 'done', 'Payload is valid and ready for routing.'),
-        step('Send to bot / worker', 'blocked', 'Delivery is disabled by Vercel env.'),
-        step('Track process', 'blocked', 'Operator must enable delivery env before tasks can run behind the scenes.'),
-      ],
+      process: processForDisabledDelivery(),
     })
     return
   }
 
-  const hasWebhook = Boolean(process.env.LOOP_TASK_WEBHOOK_URL)
-  const hasTelegram = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID)
   const payload = { id, task, kind, priority, destination }
 
   try {
-    if (destination === 'worker-webhook' || (destination === 'auto' && hasWebhook)) {
+    if (destination === 'worker-webhook' || (destination === 'auto' && readiness.webhookConfigured)) {
       await sendWebhook(payload)
       res.status(200).json({
         ok: true,
         taskId: id,
         status: 'delivered',
         destination: 'worker-webhook',
+        deliveryReadiness: readiness,
         message: 'Task delivered to the configured worker webhook.',
-        process: [
-          step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
-          step('Validate scope', 'done', 'Payload is valid and scoped.'),
-          step('Send to bot / worker', 'done', 'Webhook accepted the task.'),
-          step('Track process', 'done', 'Task id returned to the dashboard.'),
-        ],
+        process: processForDelivered('worker-webhook'),
       })
       return
     }
 
-    if (destination === 'telegram' || (destination === 'auto' && hasTelegram)) {
+    if (destination === 'telegram' || (destination === 'auto' && readiness.telegramConfigured)) {
       await sendTelegram(payload)
       res.status(200).json({
         ok: true,
         taskId: id,
         status: 'delivered',
         destination: 'telegram',
+        deliveryReadiness: readiness,
         message: 'Task delivered to the configured Telegram bot/chat.',
-        process: [
-          step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
-          step('Validate scope', 'done', 'Payload is valid and scoped.'),
-          step('Send to bot / worker', 'done', 'Telegram accepted the task.'),
-          step('Track process', 'done', 'Task id returned to the dashboard.'),
-        ],
+        process: processForDelivered('telegram'),
       })
       return
     }
@@ -182,13 +231,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       taskId: id,
       status: 'blocked_config',
       destination,
+      deliveryReadiness: readiness,
       message: 'No delivery channel is configured. Add LOOP_TASK_WEBHOOK_URL or TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Vercel.',
-      process: [
-        step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
-        step('Validate scope', 'done', 'Payload is valid and scoped.'),
-        step('Send to bot / worker', 'blocked', 'No Telegram or webhook destination exists.'),
-        step('Track process', 'blocked', 'Task was not delivered; configure a delivery channel.'),
-      ],
+      process: processForMissingChannel(),
     })
   } catch (error) {
     res.status(502).json({
@@ -196,12 +241,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       taskId: id,
       status: 'failed',
       destination,
+      deliveryReadiness: readiness,
       message: error instanceof Error ? error.message : String(error),
       process: [
         step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
         step('Validate scope', 'done', 'Payload is valid and scoped.'),
-        step('Send to bot / worker', 'error', error instanceof Error ? error.message : String(error)),
-        step('Track process', 'blocked', 'Delivery failed; check provider logs and env.'),
+        step('Route to bot / worker', 'error', error instanceof Error ? error.message : String(error)),
+        step('Run / wait for agent', 'blocked', 'Delivery failed before the worker accepted the task.'),
+        step('Verify & report back', 'blocked', 'Check provider logs and env.'),
       ],
     })
   }
