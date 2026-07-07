@@ -6,7 +6,7 @@ interface Props {
 
 export function FailureLibrary({ failures }: Props) {
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-3 sm:p-5">
       <h2 className="text-sm font-semibold text-[var(--text-muted)] mb-4 uppercase tracking-wider">⚠️ Failure Library</h2>
       <div className="space-y-2">
         {failures.map((f) => (

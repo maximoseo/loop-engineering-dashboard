@@ -9,11 +9,13 @@ export function ScoreChart({ trend, lastScore }: Props) {
   const maxScore = 100
   const width = 100
   const height = 40
-  const points = trend.map((score, i) => {
-    const x = (i / (trend.length - 1)) * width
-    const y = height - (score / maxScore) * height
-    return `${x},${y}`
-  }).join(' ')
+  const points = (trend.length === 1 ? [trend[0], trend[0]] : trend)
+    .map((score, i, arr) => {
+      const x = (i / (arr.length - 1)) * width
+      const y = height - (score / maxScore) * height
+      return `${x},${y}`
+    })
+    .join(' ')
 
   const scoreColor = lastScore.total >= 85 ? 'var(--success)' : lastScore.total >= 70 ? 'var(--warning)' : 'var(--error)'
 
@@ -30,15 +32,15 @@ export function ScoreChart({ trend, lastScore }: Props) {
   }
 
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 h-full">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-3 sm:p-5 h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider">Score Trend</h2>
         <span className="text-2xl font-bold" style={{ color: scoreColor }}>{lastScore.total}<span className="text-sm text-[var(--text-muted)]">/100</span></span>
       </div>
 
       {/* SVG Chart */}
-      <div className="relative mb-4">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="none" style={{ height: '120px' }}>
+      <div className="relative mb-1">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full" preserveAspectRatio="none" style={{ height: '120px' }} role="img" aria-label={`Score trend over the last ${trend.length} scored tasks`}>
           {/* Grid lines */}
           {[25, 50, 75].map((y) => (
             <line key={y} x1="0" y1={height - (y / maxScore) * height} x2={width} y2={height - (y / maxScore) * height} stroke="var(--border)" strokeWidth="0.2" />
@@ -59,8 +61,10 @@ export function ScoreChart({ trend, lastScore }: Props) {
         </svg>
       </div>
 
+      <p className="text-[10px] text-[var(--text-dim)] text-right mb-3">last {trend.length} scored task{trend.length === 1 ? '' : 's'}</p>
+
       {/* Score Breakdown */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {(Object.keys(breakdownLabels) as (keyof ScoreBreakdown)[])
           .filter(k => k !== 'total')
           .map(key => {

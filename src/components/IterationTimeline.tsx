@@ -6,9 +6,11 @@ interface Props {
 
 export function IterationTimeline({ iterations }: Props) {
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-3 sm:p-5">
       <h2 className="text-sm font-semibold text-[var(--text-muted)] mb-4 uppercase tracking-wider">Iteration History</h2>
-      <div className="overflow-x-auto">
+
+      {/* Desktop table (md and up) */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-[var(--text-muted)] border-b border-[var(--border)]">
@@ -48,6 +50,29 @@ export function IterationTimeline({ iterations }: Props) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile cards (below md) */}
+      <div className="md:hidden space-y-3">
+        {iterations.map((iter) => {
+          const scoreColor = iter.score.total >= 85 ? 'var(--success)' : iter.score.total >= 70 ? 'var(--warning)' : 'var(--error)'
+          return (
+            <div key={iter.id} className="border border-[var(--border)] rounded-lg p-3 bg-[var(--bg-primary)]/40">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs text-[var(--text-muted)]">#{iter.id}</span>
+                <span className="text-lg font-bold" style={{ color: scoreColor }}>{iter.score.total}</span>
+              </div>
+              <p className="text-sm mb-2 line-clamp-2">{iter.task}</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+                <span>{iter.timestamp}</span>
+                <span title="Lessons extracted">Lessons: {iter.lessons_extracted}</span>
+                <span title="Proposals generated">Proposals: {iter.proposals_made}</span>
+                <span title="Tools used">Tools: {iter.tools_used}</span>
+                <span title="Token usage">Tokens: {iter.token_usage.toLocaleString()}</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

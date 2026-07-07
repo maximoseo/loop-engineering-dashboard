@@ -71,10 +71,20 @@ interface IterationRow {
   task_id: string
   ts: string
   user_request: string | null
+  plan: string | null
   tools_used: unknown[]
   token_usage: number
   turn_count: number
   duration_seconds: number
+}
+
+interface LessonRefRow {
+  source_task_id: string
+}
+
+interface ProposalRefRow {
+  proposal_id: string
+  source_lessons: string[]
 }
 
 interface ScoreRow {
@@ -118,6 +128,7 @@ interface EvalRow {
   eval_name: string
   score: number
   passed: boolean
+  baseline_score: number | null
   created_at: string
 }
 
@@ -173,6 +184,30 @@ export async function fetchLoopState(): Promise<LiveResult> {
   const stateRow = stateRows[0]
   const scoreByTask = new Map(scoreRows.map((s) => [s.task_id, s]))
 
+  const visibleIds = iterRows.map((r) => r.task_id)
+  const idFilter = visibleIds.map((id) => `"${id}"`).join(',')
+  const [lessonRefs, proposalRefs] = visibleIds.length
+    ? await Promise.all([
+        rest<LessonRefRow[]>(`loop_lessons?select=source_task_id&source_task_id=in.(${idFilter})`),
+        rest<ProposalRefRow[]>('loop_proposals?select=proposal_id,source_lessons&limit=200'),
+      ])
+    : [[], []]
+  const lessonCount = new Map<string, number>()
+  for (const ref of lessonRefs) {
+    lessonCount.set(ref.source_task_id, (lessonCount.get(ref.source_task_id) ?? 0) + 1)
+  }
+  const proposalCount = new Map<string, number>()
+  for (const ref of proposalRefs) {
+    const tasks = new Set(
+      (ref.source_lessons ?? [])
+        .map((lessonId) => lessonId.split(/-L\d+$/)[0])
+        .filter((taskId) => visibleIds.includes(taskId)),
+    )
+    for (const taskId of tasks) {
+      proposalCount.set(taskId, (proposalCount.get(taskId) ?? 0) + 1)
+    }
+  }
+
   const currentPhase = (stateRow?.phase ?? 'idle').toUpperCase() as LoopPhase | 'IDLE'
   const currentIdx = PHASE_ORDER.indexOf(currentPhase as LoopPhase)
   const phaseDetails = (stateRow?.details?.phases ?? {}) as Record<
@@ -188,13 +223,14 @@ export async function fetchLoopState(): Promise<LiveResult> {
 
   const iterations: Iteration[] = iterRows.map((r) => {
     const score = scoreByTask.get(r.task_id)
+    const task = r.user_request?.trim() || r.plan?.trim() || r.task_id
     return {
       id: r.task_id,
       timestamp: shortTime(r.ts),
-      task: (r.user_request ?? '(no request captured)').slice(0, 120),
+      task: task.slice(0, 120),
       score: score ? toBreakdown(score) : emptyBreakdown(0),
-      lessons_extracted: 0,
-      proposals_made: 0,
+      lessons_extracted: lessonCount.get(r.task_id) ?? 0,
+      proposals_made: proposalCount.get(r.task_id) ?? 0,
       tools_used: Array.isArray(r.tools_used) ? r.tools_used.length : 0,
       token_usage: r.token_usage ?? 0,
       duration_seconds: Number(r.duration_seconds ?? 0),
@@ -234,16 +270,23 @@ export async function fetchLoopState(): Promise<LiveResult> {
 
   const latestRunId = evalRows[0]?.run_id
   const latest = evalRows.filter((e) => e.run_id === latestRunId)
-  const previous = evalRows.filter((e) => e.run_id !== latestRunId)
+  const runKind = (runId: string) => (runId.startsWith('base') ? 'baseline' : 'candidate')
+  const latestKind = latestRunId ? runKind(latestRunId) : 'baseline'
+  const previousSameKind = evalRows.filter(
+    (e) => e.run_id !== latestRunId && runKind(e.run_id) === latestKind,
+  )
   const evalResults: EvalResult[] = latest.map((e) => {
-    const prev = previous.find((p) => p.eval_name === e.eval_name)
-    const trend: EvalResult['trend'] = !prev
-      ? 'stable'
-      : e.score > prev.score
-        ? 'up'
-        : e.score < prev.score
-          ? 'down'
-          : 'stable'
+    // Candidate rows carry their own baseline score; baseline rows compare to the prior baseline run.
+    const reference =
+      e.baseline_score ?? previousSameKind.find((p) => p.eval_name === e.eval_name)?.score ?? null
+    const trend: EvalResult['trend'] =
+      reference === null
+        ? 'stable'
+        : e.score > reference
+          ? 'up'
+          : e.score < reference
+            ? 'down'
+            : 'stable'
     return {
       name: e.eval_name,
       status: e.passed ? (e.score < 80 ? 'warn' : 'pass') : 'fail',
@@ -251,6 +294,9 @@ export async function fetchLoopState(): Promise<LiveResult> {
       trend,
     }
   })
+  const evalRunLabel = latest.length
+    ? `${latestKind === 'baseline' ? 'Baseline' : 'Candidate'} run · ${shortTime(latest[latest.length - 1].created_at)}`
+    : undefined
 
   const chronological = [...scoreRows].reverse()
   const scoreTrend = chronological.slice(-50).map((s) => s.total)
@@ -276,6 +322,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
     failure_library: failures,
     optimization_backlog: backlog,
     eval_results: evalResults,
+    eval_run_label: evalRunLabel,
     score_trend: scoreTrend.length ? scoreTrend : [0],
   }
 

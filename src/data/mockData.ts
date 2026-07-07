@@ -67,6 +67,7 @@ export const mockLoopState: LoopState = {
     { name: 'Skill loading', status: 'pass', score: 87, trend: 'up' },
     { name: 'Approval gates', status: 'pass', score: 94, trend: 'stable' },
   ],
+  eval_run_label: 'Demo data',
   score_trend: [75, 78, 82, 79, 85, 83, 88, 86, 91, 84, 89, 92, 87, 90, 93, 88, 91, 89, 94, 86, 92, 95, 88, 91, 93, 89, 92, 87, 90, 92, 88, 91, 94, 89, 92, 90, 88, 91, 93, 92, 89, 92, 90, 88, 91, 93, 89, 92, 90, 92],
 }
 

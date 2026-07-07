@@ -86,6 +86,7 @@ export interface LoopState {
   failure_library: FailurePattern[]
   optimization_backlog: BacklogItem[]
   eval_results: EvalResult[]
+  eval_run_label?: string
   score_trend: number[]
   is_loop_running: boolean
 }

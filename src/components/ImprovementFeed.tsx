@@ -23,7 +23,7 @@ const typeConfig: Record<ProposalType, { color: string; label: string }> = {
 
 export function ImprovementFeed({ improvements }: Props) {
   return (
-    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-5 h-full">
+    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-3 sm:p-5 h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wider">Recent Improvements</h2>
         <span className="text-xs text-[var(--text-dim)]">{improvements.length} total</span>
