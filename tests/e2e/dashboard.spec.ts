@@ -13,7 +13,7 @@ test('production dashboard shell exposes real-world operator controls', async ({
   await expect(page.getByRole('heading', { name: /Understand, approve, and monitor loop-engineering improvements/i })).toBeVisible()
   await expect(page.getByText(/Agent operations cockpit/i)).toBeVisible()
   await expect(page.getByRole('heading', { name: /Production & data-source status/i })).toBeVisible()
-  await expect(page.getByText(/Production (Live|Partial|Demo Fallback|Data Error)/i)).toBeVisible()
+  await expect(page.getByText(/Production (Live|Partial|Demo Fallback|Data Error)/i).first()).toBeVisible()
   await expect(page.getByPlaceholder('Search proposals...')).toBeVisible()
   await expect(page.getByPlaceholder('Search iterations by task or id...')).toBeVisible()
   await expect(page.getByRole('link', { name: /Production dashboard opens in a new tab/i })).toHaveAttribute('href', 'https://loop-engineering-dashboard.vercel.app')
