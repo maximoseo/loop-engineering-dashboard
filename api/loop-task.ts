@@ -1,18 +1,22 @@
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
-
 type Destination = 'auto' | 'telegram' | 'worker-webhook'
+type TaskStatus = 'queued' | 'delivered' | 'accepted' | 'running' | 'needs_review' | 'done' | 'failed' | 'blocked_config' | 'archived'
+type ResolvedDestination = 'pending' | 'telegram' | 'worker-webhook' | 'blocked' | 'failed'
 
 type RequestBody = {
   task?: unknown
   kind?: unknown
   priority?: unknown
   destination?: unknown
+  expectedResult?: unknown
+  contextUrl?: unknown
 }
 
 type VercelRequest = {
   method?: string
   body?: unknown
   headers: Record<string, string | string[] | undefined>
+  query?: Record<string, string | string[] | undefined>
 }
 
 type VercelResponse = {
@@ -21,14 +25,43 @@ type VercelResponse = {
   setHeader: (name: string, value: string) => void
 }
 
+interface ProcessStep {
+  label: string
+  state: StepState
+  detail: string
+}
+
+interface StoredTask {
+  task_id: string
+  task: string
+  kind: string
+  priority: string
+  destination: string
+  resolved_destination: ResolvedDestination
+  status: TaskStatus
+  delivery_message: string | null
+  process: ProcessStep[]
+  result_summary: string | null
+  telegram_message_id: string | null
+  created_at: string
+  updated_at: string
+  claimed_at: string | null
+  completed_at: string | null
+  error: string | null
+}
+
 const validKinds = new Set(['agent-run', 'project', 'debug', 'dashboard', 'proposal'])
 const validPriorities = new Set(['normal', 'high', 'urgent'])
 const validDestinations = new Set(['auto', 'telegram', 'worker-webhook'])
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 
 function deliveryReadiness() {
   const publicDeliveryEnabled = process.env.LOOP_TASK_PUBLIC_ENABLED === 'true'
   const telegramConfigured = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID)
   const webhookConfigured = Boolean(process.env.LOOP_TASK_WEBHOOK_URL)
+  const queueConfigured = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY)
   const defaultRoute = !publicDeliveryEnabled
     ? 'blocked_config'
     : webhookConfigured
@@ -42,11 +75,12 @@ function deliveryReadiness() {
     publicDeliveryEnabled,
     telegramConfigured,
     webhookConfigured,
+    queueConfigured,
     defaultRoute,
   }
 }
 
-function step(label: string, state: StepState, detail: string) {
+function step(label: string, state: StepState, detail: string): ProcessStep {
   return { label, state, detail }
 }
 
@@ -62,11 +96,13 @@ function asBody(body: unknown): RequestBody {
   return body && typeof body === 'object' ? body as RequestBody : {}
 }
 
+function queryValue(req: VercelRequest, key: string): string | undefined {
+  const value = req.query?.[key]
+  return Array.isArray(value) ? value[0] : value
+}
+
 function escapeHtml(input: string) {
-  return input
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
+  return input.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
 function processForInvalidInput() {
@@ -81,7 +117,7 @@ function processForInvalidInput() {
 
 function processForDisabledDelivery() {
   return [
-    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Capture request', 'done', 'Request saved to the persistent task queue.'),
     step('Validate scope', 'done', 'Payload is valid and ready for routing.'),
     step('Route to bot / worker', 'blocked', 'Delivery is disabled by Vercel env.'),
     step('Run / wait for agent', 'blocked', 'No bot or worker run was started.'),
@@ -91,7 +127,7 @@ function processForDisabledDelivery() {
 
 function processForMissingChannel() {
   return [
-    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Capture request', 'done', 'Request saved to the persistent task queue.'),
     step('Validate scope', 'done', 'Payload is valid and scoped.'),
     step('Route to bot / worker', 'blocked', 'No Telegram or webhook destination exists.'),
     step('Run / wait for agent', 'blocked', 'No bot or worker accepted the task.'),
@@ -101,12 +137,100 @@ function processForMissingChannel() {
 
 function processForDelivered(channel: 'telegram' | 'worker-webhook') {
   return [
-    step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
+    step('Capture request', 'done', 'Request saved to the persistent Supabase queue.'),
     step('Validate scope', 'done', 'Payload is valid and scoped.'),
     step('Route to bot / worker', 'done', channel === 'telegram' ? 'Telegram accepted the task.' : 'Webhook accepted the task.'),
     step('Run / wait for agent', 'active', 'The external bot/worker now owns execution and follow-up.'),
     step('Verify & report back', 'pending', 'Wait for the agent result, then verify the dashboard/output.'),
   ]
+}
+
+function supabaseHeaders(prefer?: string) {
+  if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY')
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    'content-type': 'application/json',
+    ...(prefer ? { prefer } : {}),
+  }
+}
+
+async function supabaseFetch(path: string, init: RequestInit = {}) {
+  if (!SUPABASE_URL) throw new Error('Missing SUPABASE_URL')
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      ...supabaseHeaders(init.headers && 'Prefer' in init.headers ? undefined : undefined),
+      ...(init.headers || {}),
+    },
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`Supabase ${path}: HTTP ${response.status} ${body.slice(0, 160)}`)
+  }
+  return response
+}
+
+async function insertTask(row: {
+  task_id: string
+  task: string
+  kind: string
+  priority: string
+  destination: Destination
+  status: TaskStatus
+  resolved_destination: ResolvedDestination
+  delivery_message: string | null
+  process: ProcessStep[]
+  error?: string | null
+  metadata?: Record<string, unknown>
+}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs`, {
+    method: 'POST',
+    headers: supabaseHeaders('return=representation'),
+    body: JSON.stringify(row),
+  })
+  if (!response.ok) throw new Error(`Supabase insert task: HTTP ${response.status} ${(await response.text()).slice(0, 160)}`)
+  const json = await response.json() as StoredTask[]
+  await insertEvent(row.task_id, 'task_created', 'Task created in persistent queue.', { status: row.status })
+  return json[0]
+}
+
+async function updateTask(task_id: string, patch: Partial<StoredTask>) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?task_id=eq.${encodeURIComponent(task_id)}`, {
+    method: 'PATCH',
+    headers: supabaseHeaders('return=representation'),
+    body: JSON.stringify(patch),
+  })
+  if (!response.ok) throw new Error(`Supabase update task: HTTP ${response.status} ${(await response.text()).slice(0, 160)}`)
+  const json = await response.json() as StoredTask[]
+  return json[0]
+}
+
+async function insertEvent(task_id: string, event_type: string, message: string, metadata: Record<string, unknown> = {}) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_events`, {
+    method: 'POST',
+    headers: supabaseHeaders(),
+    body: JSON.stringify({ task_id, event_type, message, metadata }),
+  })
+  if (!response.ok) throw new Error(`Supabase insert event: HTTP ${response.status} ${(await response.text()).slice(0, 160)}`)
+}
+
+async function listTasks(limit = 12) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return []
+  const response = await supabaseFetch(`loop_task_handoffs?select=*&status=neq.archived&order=created_at.desc&limit=${limit}`)
+  return (await response.json()) as StoredTask[]
+}
+
+async function getTask(task_id: string) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return { tasks: [], events: [] }
+  const [taskResponse, eventResponse] = await Promise.all([
+    supabaseFetch(`loop_task_handoffs?select=*&task_id=eq.${encodeURIComponent(task_id)}&limit=1`),
+    supabaseFetch(`loop_task_events?select=*&task_id=eq.${encodeURIComponent(task_id)}&order=created_at.asc`),
+  ])
+  return { tasks: await taskResponse.json(), events: await eventResponse.json() }
 }
 
 async function sendTelegram(payload: { id: string; task: string; kind: string; priority: string }) {
@@ -123,27 +247,27 @@ async function sendTelegram(payload: { id: string; task: string; kind: string; p
     escapeHtml(payload.task),
   ].join('\n')
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
   })
-  if (!res.ok) throw new Error(`Telegram HTTP ${res.status}`)
+  const json = await response.json() as { ok?: boolean; result?: { message_id?: number }; description?: string }
+  if (!response.ok || !json.ok) throw new Error(`Telegram HTTP ${response.status}: ${json.description || 'send failed'}`)
+  return json.result?.message_id ? String(json.result.message_id) : null
 }
 
 async function sendWebhook(payload: { id: string; task: string; kind: string; priority: string; destination: Destination }) {
   const url = process.env.LOOP_TASK_WEBHOOK_URL
   if (!url) throw new Error('Webhook env is missing')
   const headers: Record<string, string> = { 'content-type': 'application/json' }
-  if (process.env.LOOP_TASK_WEBHOOK_SECRET) {
-    headers.authorization = `Bearer ${process.env.LOOP_TASK_WEBHOOK_SECRET}`
-  }
-  const res = await fetch(url, {
+  if (process.env.LOOP_TASK_WEBHOOK_SECRET) headers.authorization = `Bearer ${process.env.LOOP_TASK_WEBHOOK_SECRET}`
+  const response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({ ...payload, source: 'loop-engineering-dashboard', createdAt: new Date().toISOString() }),
   })
-  if (!res.ok) throw new Error(`Webhook HTTP ${res.status}`)
+  if (!response.ok) throw new Error(`Webhook HTTP ${response.status}`)
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -151,7 +275,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const readiness = deliveryReadiness()
 
   if (req.method === 'GET') {
-    res.status(200).json({ ok: true, deliveryReadiness: readiness })
+    const taskIdParam = queryValue(req, 'taskId')
+    if (taskIdParam) {
+      const detail = await getTask(taskIdParam)
+      res.status(200).json({ ok: true, deliveryReadiness: readiness, ...detail })
+      return
+    }
+    const includeTasks = queryValue(req, 'includeTasks') === 'true'
+    const tasks = includeTasks ? await listTasks() : []
+    res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks })
     return
   }
 
@@ -165,91 +297,90 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const task = typeof body.task === 'string' ? body.task.trim() : ''
   const kind = typeof body.kind === 'string' && validKinds.has(body.kind) ? body.kind : 'agent-run'
   const priority = typeof body.priority === 'string' && validPriorities.has(body.priority) ? body.priority : 'normal'
-  const destination = typeof body.destination === 'string' && validDestinations.has(body.destination)
-    ? body.destination as Destination
-    : 'auto'
+  const destination = typeof body.destination === 'string' && validDestinations.has(body.destination) ? body.destination as Destination : 'auto'
+  const expectedResult = typeof body.expectedResult === 'string' ? body.expectedResult.trim().slice(0, 1000) : ''
+  const contextUrl = typeof body.contextUrl === 'string' ? body.contextUrl.trim().slice(0, 1000) : ''
 
   if (task.length < 10 || task.length > 4000) {
-    res.status(400).json({
-      ok: false,
-      taskId: id,
-      status: 'failed',
+    const process = processForInvalidInput()
+    res.status(400).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: 'Task must be between 10 and 4000 characters.', process })
+    return
+  }
+
+  let status: TaskStatus = readiness.publicDeliveryEnabled ? 'queued' : 'blocked_config'
+  let resolved_destination: ResolvedDestination = 'pending'
+  let message = readiness.publicDeliveryEnabled ? 'Task queued for delivery.' : 'Backend intake is installed, but public task delivery is disabled.'
+  let process = readiness.publicDeliveryEnabled ? processForMissingChannel() : processForDisabledDelivery()
+
+  try {
+    await insertTask({
+      task_id: id,
+      task,
+      kind,
+      priority,
       destination,
-      deliveryReadiness: readiness,
-      message: 'Task must be between 10 and 4000 characters.',
-      process: processForInvalidInput(),
+      status,
+      resolved_destination,
+      delivery_message: message,
+      process,
+      metadata: { expectedResult, contextUrl },
     })
+  } catch (error) {
+    res.status(500).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: error instanceof Error ? error.message : String(error), process })
     return
   }
 
   if (!readiness.publicDeliveryEnabled) {
-    res.status(202).json({
-      ok: false,
-      taskId: id,
-      status: 'blocked_config',
-      destination,
-      deliveryReadiness: readiness,
-      message: 'Backend intake is installed, but public task delivery is disabled. Set LOOP_TASK_PUBLIC_ENABLED=true after choosing Telegram or webhook delivery.',
-      process: processForDisabledDelivery(),
-    })
+    await insertEvent(id, 'delivery_blocked', message, { reason: 'public_delivery_disabled' })
+    res.status(202).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
     return
   }
 
-  const payload = { id, task, kind, priority, destination }
-
   try {
     if (destination === 'worker-webhook' || (destination === 'auto' && readiness.webhookConfigured)) {
-      await sendWebhook(payload)
-      res.status(200).json({
-        ok: true,
-        taskId: id,
-        status: 'delivered',
-        destination: 'worker-webhook',
-        deliveryReadiness: readiness,
-        message: 'Task delivered to the configured worker webhook.',
-        process: processForDelivered('worker-webhook'),
-      })
+      await sendWebhook({ id, task, kind, priority, destination })
+      status = 'delivered'
+      resolved_destination = 'worker-webhook'
+      message = 'Task delivered to the configured worker webhook.'
+      process = processForDelivered('worker-webhook')
+      await updateTask(id, { status, resolved_destination, delivery_message: message, process })
+      await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination })
+      res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
       return
     }
 
     if (destination === 'telegram' || (destination === 'auto' && readiness.telegramConfigured)) {
-      await sendTelegram(payload)
-      res.status(200).json({
-        ok: true,
-        taskId: id,
-        status: 'delivered',
-        destination: 'telegram',
-        deliveryReadiness: readiness,
-        message: 'Task delivered to the configured Telegram bot/chat.',
-        process: processForDelivered('telegram'),
-      })
+      const telegramMessageId = await sendTelegram({ id, task, kind, priority })
+      status = 'delivered'
+      resolved_destination = 'telegram'
+      message = 'Task delivered to the configured Telegram bot/chat.'
+      process = processForDelivered('telegram')
+      await updateTask(id, { status, resolved_destination, delivery_message: message, process, telegram_message_id: telegramMessageId })
+      await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination, telegramMessageId })
+      res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
       return
     }
 
-    res.status(202).json({
-      ok: false,
-      taskId: id,
-      status: 'blocked_config',
-      destination,
-      deliveryReadiness: readiness,
-      message: 'No delivery channel is configured. Add LOOP_TASK_WEBHOOK_URL or TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Vercel.',
-      process: processForMissingChannel(),
-    })
+    status = 'blocked_config'
+    resolved_destination = 'blocked'
+    message = 'No delivery channel is configured. Add LOOP_TASK_WEBHOOK_URL or TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Vercel.'
+    process = processForMissingChannel()
+    await updateTask(id, { status, resolved_destination, delivery_message: message, process })
+    await insertEvent(id, 'delivery_blocked', message, { reason: 'missing_channel' })
+    res.status(202).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
   } catch (error) {
-    res.status(502).json({
-      ok: false,
-      taskId: id,
-      status: 'failed',
-      destination,
-      deliveryReadiness: readiness,
-      message: error instanceof Error ? error.message : String(error),
-      process: [
-        step('Capture request', 'done', 'Request reached the backend intake endpoint.'),
-        step('Validate scope', 'done', 'Payload is valid and scoped.'),
-        step('Route to bot / worker', 'error', error instanceof Error ? error.message : String(error)),
-        step('Run / wait for agent', 'blocked', 'Delivery failed before the worker accepted the task.'),
-        step('Verify & report back', 'blocked', 'Check provider logs and env.'),
-      ],
-    })
+    status = 'failed'
+    resolved_destination = 'failed'
+    message = error instanceof Error ? error.message : String(error)
+    process = [
+      step('Capture request', 'done', 'Request saved to the persistent task queue.'),
+      step('Validate scope', 'done', 'Payload is valid and scoped.'),
+      step('Route to bot / worker', 'error', message),
+      step('Run / wait for agent', 'blocked', 'Delivery failed before the worker accepted the task.'),
+      step('Verify & report back', 'blocked', 'Check provider logs and env.'),
+    ]
+    await updateTask(id, { status, resolved_destination, delivery_message: message, process, error: message })
+    await insertEvent(id, 'delivery_failed', message, { destination })
+    res.status(502).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
   }
 }

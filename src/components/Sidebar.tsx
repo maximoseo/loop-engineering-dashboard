@@ -14,9 +14,11 @@ type NavItem = { id: string; label: string; icon: string; group: 'Command' | 'Re
 
 const navItems: NavItem[] = [
   { id: 'task-intake', label: 'New task', icon: 'terminal', group: 'Command' },
+  { id: 'operator-center', label: 'Today view', icon: 'grid', group: 'Command' },
   { id: 'overview', label: 'Command center', icon: 'grid', group: 'Command' },
   { id: 'production', label: 'Live data proof', icon: 'database', group: 'Command' },
-  { id: 'loop', label: 'Loop phases', icon: 'cycle', group: 'Command' },
+  { id: 'loop', label: 'Loop phases', icon: 'activity', group: 'Command' },
+  { id: 'review-center', label: 'Review center', icon: 'shield', group: 'Review' },
   { id: 'improvements', label: 'Proposals', icon: 'sparkles', group: 'Review' },
   { id: 'evals', label: 'Eval results', icon: 'check', group: 'Review' },
   { id: 'iterations', label: 'Iterations', icon: 'clock', group: 'History' },
@@ -30,6 +32,8 @@ function NavIcon({ name }: { name: string }) {
   const icons: Record<string, JSX.Element> = {
     grid: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
     cycle: <><path d="M3 12a9 9 0 1 0 9-9" /><path d="M3 4v5h5" /></>,
+    activity: <><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></>,
+    shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M9 12l2 2 4-4" /></>,
     sparkles: <><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3z" /></>,
     check: <><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="9" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></>,

@@ -47,13 +47,15 @@ The `New task` panel lets an operator write a Loop Engineering task/project and 
 
 Runtime behavior:
 
-1. Browser captures the task, type, priority, destination, and optional template context.
-2. `GET /api/loop-task` returns safe delivery-readiness booleans (`publicDeliveryEnabled`, `telegramConfigured`, `webhookConfigured`, `defaultRoute`) without exposing secrets.
-3. `POST /api/loop-task` validates the payload and routes it only when delivery is explicitly enabled.
-4. If `LOOP_TASK_PUBLIC_ENABLED` is not `true`, the API returns `blocked_config` and the UI shows `Configuration required`.
-5. If delivery is enabled, the API chooses webhook first for `auto`, then Telegram, unless the operator selected a specific destination.
-6. The UI process tracker shows `Capture request` → `Validate scope` → `Route to bot / worker` → `Run / wait for agent` → `Verify & report back`.
-7. Recent handoffs are shown in the browser session; persistent queue storage requires a reviewed backend/Supabase schema.
+1. Browser captures the task, type, priority, destination, optional Definition of Done, and optional context link.
+2. `POST /api/loop-task` stores a durable row in `loop_task_handoffs` using the server-side `SUPABASE_SERVICE_ROLE_KEY`.
+3. `loop_task_events` records the lifecycle events.
+4. `GET /api/loop-task?includeTasks=true` returns safe delivery-readiness booleans plus recent persisted tasks.
+5. If `LOOP_TASK_PUBLIC_ENABLED` is not `true`, the API stores the task and returns `blocked_config`.
+6. If Telegram env exists, the API sends to Telegram and updates the task row to `delivered`.
+7. If `LOOP_TASK_WEBHOOK_URL` exists and is selected/defaulted, the API sends to the webhook and updates the task row to `delivered`.
+8. The UI updates the process tracker and persistent queue from Supabase.
+9. Full autonomous execution/status writeback requires a worker/cron to update `accepted`, `running`, `needs_review`, `done`, or `failed`.
 
 Required env to enable real delivery:
 

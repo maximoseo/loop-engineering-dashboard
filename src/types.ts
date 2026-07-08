@@ -110,6 +110,46 @@ export interface LoopState {
   is_loop_running: boolean
 }
 
+export type LoopTaskKind = 'agent-run' | 'project' | 'debug' | 'dashboard' | 'proposal'
+export type LoopTaskPriority = 'normal' | 'high' | 'urgent'
+export type LoopTaskDestination = 'auto' | 'telegram' | 'worker-webhook'
+export type LoopTaskStatus = 'queued' | 'delivered' | 'accepted' | 'running' | 'needs_review' | 'done' | 'failed' | 'blocked_config' | 'archived'
+export type LoopTaskResolvedDestination = 'pending' | 'telegram' | 'worker-webhook' | 'blocked' | 'failed'
+
+export interface LoopTaskProcessStep {
+  label: string
+  state: 'pending' | 'active' | 'done' | 'blocked' | 'error'
+  detail: string
+}
+
+export interface LoopTaskHandoff {
+  task_id: string
+  task: string
+  kind: LoopTaskKind
+  priority: LoopTaskPriority
+  destination: LoopTaskDestination
+  resolved_destination: LoopTaskResolvedDestination
+  status: LoopTaskStatus
+  delivery_message: string | null
+  process: LoopTaskProcessStep[]
+  result_summary: string | null
+  telegram_message_id: string | null
+  created_at: string
+  updated_at: string
+  claimed_at: string | null
+  completed_at: string | null
+  error: string | null
+}
+
+export interface LoopTaskEvent {
+  id: string
+  task_id: string
+  event_type: string
+  message: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 export interface DashboardMeta {
   id: string
   name: string

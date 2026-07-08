@@ -15,6 +15,7 @@ import { FailureLibrary } from './components/FailureLibrary.tsx'
 import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
 import { ProductionStatus } from './components/ProductionStatus.tsx'
 import { NewLoopTask } from './components/NewLoopTask.tsx'
+import { OperatorCommandCenter } from './components/OperatorCommandCenter.tsx'
 
 const POLL_MS = 30_000
 
@@ -77,6 +78,14 @@ export default function App() {
 
           {/* Primary task command workbench */}
           <NewLoopTask />
+
+          {/* Operator today/review/health center */}
+          <OperatorCommandCenter
+            state={state}
+            health={health}
+            live={live}
+            elapsed={elapsed}
+          />
 
           {/* Compact operational overview */}
           <OperationalOverview
