@@ -23,9 +23,14 @@ export function EvalResults({ results, runLabel }: Props) {
     : 0
 
   return (
-    <div id="evals" className="rounded-2xl glass gradient-border p-5 md:p-6 h-full animate-fade-in delay-3">
-      <div className="flex items-center justify-between gap-2 mb-5 flex-wrap">
-        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Eval Results</h3>
+    <section id="evals" className="premium-panel eval-panel h-full animate-fade-in delay-3" aria-label="Evaluation results">
+      <div className="premium-panel-core">
+      <div className="panel-heading-row compact mb-5">
+        <div>
+          <p className="panel-kicker">eval health</p>
+          <h3>Eval results</h3>
+          <span>Pass/warn/fail status for the latest evaluation run.</span>
+        </div>
         {runLabel && (
           <span className="text-[10px] px-2 py-1 rounded-lg font-mono" style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa' }}>
             {runLabel}
@@ -80,6 +85,7 @@ export function EvalResults({ results, runLabel }: Props) {
           })
         )}
       </div>
-    </div>
+      </div>
+    </section>
   )
 }

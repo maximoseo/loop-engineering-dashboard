@@ -100,54 +100,65 @@ export default function App() {
             onRefresh={() => void load(true)}
           />
 
-          {/* Metrics */}
-          <MetricsSummary
-            avgScore={state.avg_score_7d}
-            totalIterations={state.total_iterations}
-            activated={state.improvements_activated}
-            rolledBack={state.improvements_rolled_back}
-            scoreTrend={state.score_trend}
-          />
-
-          {/* Phase Timeline + Score Chart */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-            <PhaseTimeline phases={state.phases} currentPhase={state.current_phase} />
-            <ScoreChart trend={state.score_trend} lastScore={state.last_score} />
-          </div>
-
-          {/* Production/data source details */}
-          <ProductionStatus
-            health={health}
-            live={live}
-            isRunning={state.is_loop_running}
-            lastUpdated={lastUpdated}
-            elapsed={elapsed}
-            totalIterations={state.total_iterations}
-            avgScore={state.avg_score_7d}
-            activated={state.improvements_activated}
-            rolledBack={state.improvements_rolled_back}
-            evalCount={state.eval_results.length}
-            backlogCount={state.optimization_backlog.length}
-          />
-
-          {/* Improvements + Evals */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-            <div className="lg:col-span-2">
-              <ImprovementFeed improvements={state.recent_improvements} />
+          {/* Lower intelligence deck: data, graphs, history and review */}
+          <section className="lower-intelligence-deck" aria-label="Operations intelligence, graphs and history">
+            <div className="deck-hero">
+              <div>
+                <p className="deck-eyebrow">Operations intelligence</p>
+                <h2>Signals, trends, reviews and recovery history</h2>
+                <p>Professional monitoring layer for the lower dashboard: live data proof, score movement, proposal review, eval health, recent runs, failure patterns and backlog priorities.</p>
+              </div>
+              <div className="deck-proof-grid" aria-label="Lower dashboard proof points">
+                <span><strong>{state.score_trend.length}</strong> score points</span>
+                <span><strong>{state.recent_improvements.length}</strong> proposals</span>
+                <span><strong>{state.eval_results.length}</strong> evals</span>
+                <span><strong>{state.failure_library.length}</strong> patterns</span>
+              </div>
             </div>
-            <div className="lg:col-span-1">
-              <EvalResults results={state.eval_results} runLabel={state.eval_run_label} />
+
+            <MetricsSummary
+              avgScore={state.avg_score_7d}
+              totalIterations={state.total_iterations}
+              activated={state.improvements_activated}
+              rolledBack={state.improvements_rolled_back}
+              scoreTrend={state.score_trend}
+            />
+
+            <div className="deck-grid deck-grid-balanced">
+              <PhaseTimeline phases={state.phases} currentPhase={state.current_phase} />
+              <ScoreChart trend={state.score_trend} lastScore={state.last_score} />
             </div>
-          </div>
 
-          {/* Iteration Timeline */}
-          <IterationTimeline iterations={state.recent_iterations} />
+            <ProductionStatus
+              health={health}
+              live={live}
+              isRunning={state.is_loop_running}
+              lastUpdated={lastUpdated}
+              elapsed={elapsed}
+              totalIterations={state.total_iterations}
+              avgScore={state.avg_score_7d}
+              activated={state.improvements_activated}
+              rolledBack={state.improvements_rolled_back}
+              evalCount={state.eval_results.length}
+              backlogCount={state.optimization_backlog.length}
+            />
 
-          {/* Failures + Backlog */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-            <FailureLibrary failures={state.failure_library} />
-            <OptimizationBacklog backlog={state.optimization_backlog} />
-          </div>
+            <div className="deck-grid deck-grid-review">
+              <div className="deck-primary-column">
+                <ImprovementFeed improvements={state.recent_improvements} />
+              </div>
+              <div className="deck-side-column">
+                <EvalResults results={state.eval_results} runLabel={state.eval_run_label} />
+              </div>
+            </div>
+
+            <IterationTimeline iterations={state.recent_iterations} />
+
+            <div className="deck-grid deck-grid-balanced">
+              <FailureLibrary failures={state.failure_library} />
+              <OptimizationBacklog backlog={state.optimization_backlog} />
+            </div>
+          </section>
 
           {/* Footer */}
           <footer className="pt-6 pb-2 text-center text-xs text-[var(--text-dim)]">

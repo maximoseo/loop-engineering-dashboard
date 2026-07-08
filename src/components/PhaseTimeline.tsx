@@ -34,12 +34,15 @@ function PhaseIcon({ phase }: { phase: LoopPhase }) {
 
 export function PhaseTimeline({ phases, currentPhase }: Props) {
   return (
-    <div id="loop" className="rounded-2xl glass gradient-border p-5 md:p-6 animate-fade-in delay-1">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Phase Timeline</h3>
-        <span className="text-xs text-[var(--text-dim)] font-mono">
-          {phases.filter(p => p.status === 'done').length}/7 complete
-        </span>
+    <section id="loop" className="premium-panel phase-panel animate-fade-in delay-1" aria-label="Loop phase timeline">
+      <div className="premium-panel-core">
+      <div className="panel-heading-row compact">
+        <div>
+          <p className="panel-kicker">loop phases</p>
+          <h3>Execution flow</h3>
+          <span>Current phase and completed control-loop stages.</span>
+        </div>
+        <strong className="panel-count">{phases.filter(p => p.status === 'done').length}/7</strong>
       </div>
 
       {/* Horizontal flow */}
@@ -89,6 +92,7 @@ export function PhaseTimeline({ phases, currentPhase }: Props) {
           )
         })}
       </div>
-    </div>
+      </div>
+    </section>
   )
 }

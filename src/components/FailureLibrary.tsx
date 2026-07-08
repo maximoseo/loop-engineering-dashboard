@@ -9,10 +9,15 @@ export function FailureLibrary({ failures }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null)
 
   return (
-    <div id="failures" className="rounded-2xl glass gradient-border p-5 md:p-6 animate-fade-in delay-5">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Failure Library</h3>
-        <span className="text-xs text-[var(--text-dim)] font-mono">{failures.length} patterns</span>
+    <section id="failures" className="premium-panel failure-panel animate-fade-in delay-5" aria-label="Failure library">
+      <div className="premium-panel-core">
+      <div className="panel-heading-row compact">
+        <div>
+          <p className="panel-kicker">recovery library</p>
+          <h3>Failure patterns</h3>
+          <span>Known regressions and mitigations captured from live runs.</span>
+        </div>
+        <strong className="panel-count">{failures.length}</strong>
       </div>
       <div className="space-y-2">
         {failures.map((f) => {
@@ -67,6 +72,7 @@ export function FailureLibrary({ failures }: Props) {
           )
         })}
       </div>
-    </div>
+      </div>
+    </section>
   )
 }

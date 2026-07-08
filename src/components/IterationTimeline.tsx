@@ -15,13 +15,15 @@ export function IterationTimeline({ iterations }: Props) {
   const filtered = useMemo(() => filterIterations(iterations, { query, minScore }), [iterations, minScore, query])
 
   return (
-    <div id="iterations" className="rounded-2xl glass gradient-border p-5 md:p-6 animate-fade-in delay-4">
-      <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+    <section id="iterations" className="premium-panel iteration-panel animate-fade-in delay-4" aria-label="Iteration history">
+      <div className="premium-panel-core">
+      <div className="panel-heading-row compact">
         <div>
-          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Iteration History</h3>
-          <p className="mt-1 text-[11px] text-[var(--text-dim)]">Search recent tasks, score thresholds, and inspect score/tool/token details.</p>
+          <p className="panel-kicker">run memory</p>
+          <h3>Iteration history</h3>
+          <span>Search recent tasks, score thresholds, and inspect score/tool/token details.</span>
         </div>
-        <span className="text-xs text-[var(--text-dim)] font-mono">{filtered.length}/{iterations.length} recent</span>
+        <strong className="panel-count">{filtered.length}/{iterations.length}</strong>
       </div>
 
       <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -97,6 +99,7 @@ export function IterationTimeline({ iterations }: Props) {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </section>
   )
 }

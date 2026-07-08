@@ -64,13 +64,15 @@ export function ImprovementFeed({ improvements }: Props) {
   }
 
   return (
-    <div id="improvements" className="rounded-2xl glass gradient-border p-5 md:p-6 animate-fade-in delay-3">
-      <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
+    <section id="improvements" className="premium-panel improvement-panel animate-fade-in delay-3" aria-label="Recent improvement proposals">
+      <div className="premium-panel-core">
+      <div className="panel-heading-row compact">
         <div>
-          <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Recent Improvements</h3>
-          <p className="mt-1 text-[11px] text-[var(--text-dim)]">Filter, inspect, and copy safe CLI approval handoffs — no public mutation endpoint.</p>
+          <p className="panel-kicker">review queue</p>
+          <h3>Recent improvements</h3>
+          <span>Filter, inspect, and copy safe CLI approval handoffs — no public mutation endpoint.</span>
         </div>
-        <span className="text-xs text-[var(--text-dim)] font-mono">{filtered.length}/{improvements.length} shown</span>
+        <strong className="panel-count">{filtered.length}/{improvements.length}</strong>
       </div>
 
       <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-2">
@@ -91,7 +93,7 @@ export function ImprovementFeed({ improvements }: Props) {
         </select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {filtered.map((imp) => {
           const sc = statusConfig[imp.status]
           const tc = typeConfig[imp.type]
@@ -167,6 +169,7 @@ export function ImprovementFeed({ improvements }: Props) {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </section>
   )
 }

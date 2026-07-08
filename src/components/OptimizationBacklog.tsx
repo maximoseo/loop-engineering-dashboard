@@ -18,10 +18,15 @@ export function OptimizationBacklog({ backlog }: Props) {
   }
 
   return (
-    <div id="backlog" className="rounded-2xl glass gradient-border p-5 md:p-6 animate-fade-in delay-5">
-      <div className="flex items-center justify-between mb-5">
-        <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Optimization Backlog</h3>
-        <span className="text-xs text-[var(--text-dim)] font-mono">{backlog.length} items</span>
+    <section id="backlog" className="premium-panel backlog-panel animate-fade-in delay-5" aria-label="Optimization backlog">
+      <div className="premium-panel-core">
+      <div className="panel-heading-row compact">
+        <div>
+          <p className="panel-kicker">next actions</p>
+          <h3>Optimization backlog</h3>
+          <span>Prioritized opportunities grouped by operational impact.</span>
+        </div>
+        <strong className="panel-count">{backlog.length}</strong>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -64,6 +69,7 @@ export function OptimizationBacklog({ backlog }: Props) {
           )
         })}
       </div>
-    </div>
+      </div>
+    </section>
   )
 }
