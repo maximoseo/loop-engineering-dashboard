@@ -16,6 +16,7 @@ import { OptimizationBacklog } from './components/OptimizationBacklog.tsx'
 import { ProductionStatus } from './components/ProductionStatus.tsx'
 import { NewLoopTask } from './components/NewLoopTask.tsx'
 import { OperatorCommandCenter } from './components/OperatorCommandCenter.tsx'
+import { ProjectOrchestrator } from './components/ProjectOrchestrator.tsx'
 
 const POLL_MS = 30_000
 
@@ -78,6 +79,9 @@ export default function App() {
 
           {/* Primary task command workbench */}
           <NewLoopTask />
+
+          {/* Multi-agent orchestration cockpit */}
+          <ProjectOrchestrator />
 
           {/* Operator today/review/health center */}
           <OperatorCommandCenter

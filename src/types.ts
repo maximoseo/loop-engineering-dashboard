@@ -150,6 +150,116 @@ export interface LoopTaskEvent {
   created_at: string
 }
 
+export interface OrchestratorProject {
+  project_id: string
+  name: string
+  objective: string
+  status: 'draft' | 'active' | 'paused' | 'done' | 'failed' | 'archived'
+  scope: Record<string, unknown>
+  constraints: string[]
+  success_criteria: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface OrchestratorRun {
+  run_id: string
+  project_id: string
+  mode: 'lead_agent' | 'parallel_specialists' | 'debate' | 'pipeline' | 'swarm_verify'
+  status: 'draft' | 'queued' | 'planning' | 'dispatching' | 'running' | 'verifying' | 'needs_review' | 'done' | 'failed' | 'cancelled'
+  strategy: Record<string, unknown>
+  budget: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface AgentRegistryEntry {
+  agent_id: string
+  name: string
+  type: string
+  role: string
+  capabilities: string[]
+  allowed_tools: string[]
+  default_model_profile_id: string | null
+  status: 'online' | 'offline' | 'degraded' | 'disabled'
+  last_heartbeat: string | null
+}
+
+export interface ModelProfile {
+  model_profile_id: string
+  label: string
+  provider: string
+  model: string
+  purpose: string
+  cost_tier: 'low' | 'medium' | 'high'
+  latency_tier: 'fast' | 'normal' | 'slow'
+  capabilities: Record<string, unknown>
+  fallback_profile_ids: string[]
+  enabled: boolean
+}
+
+export interface AgentAssignment {
+  assignment_id: string
+  run_id: string
+  project_id: string
+  agent_id: string
+  model_profile_id: string | null
+  status: 'queued' | 'leased' | 'running' | 'blocked' | 'needs_review' | 'done' | 'failed' | 'cancelled'
+  lease_owner: string | null
+  lease_expires_at: string | null
+  input: Record<string, unknown>
+  output: Record<string, unknown>
+  error: string | null
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface AgentEvent {
+  id: string
+  run_id: string
+  assignment_id: string | null
+  agent_id: string | null
+  event_type: string
+  message: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface RunApproval {
+  approval_id: string
+  run_id: string
+  assignment_id: string | null
+  risk_level: 'low' | 'medium' | 'high' | 'critical'
+  action_type: string
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  reason: string | null
+  created_at: string
+  resolved_at: string | null
+}
+
+export interface RunArtifact {
+  artifact_id: string
+  run_id: string
+  assignment_id: string | null
+  type: string
+  name: string
+  uri: string | null
+  summary: string | null
+  created_at: string
+}
+
+export interface WorkerHeartbeat {
+  worker_id: string
+  agent_id: string | null
+  status: 'online' | 'offline' | 'degraded'
+  current_assignment_id: string | null
+  last_heartbeat: string
+}
+
 export interface DashboardMeta {
   id: string
   name: string

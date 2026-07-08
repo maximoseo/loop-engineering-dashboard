@@ -14,6 +14,7 @@ type NavItem = { id: string; label: string; icon: string; group: 'Command' | 'Re
 
 const navItems: NavItem[] = [
   { id: 'task-intake', label: 'New task', icon: 'terminal', group: 'Command' },
+  { id: 'orchestrator', label: 'Orchestrator', icon: 'network', group: 'Command' },
   { id: 'operator-center', label: 'Today view', icon: 'grid', group: 'Command' },
   { id: 'overview', label: 'Command center', icon: 'grid', group: 'Command' },
   { id: 'production', label: 'Live data proof', icon: 'database', group: 'Command' },
@@ -41,6 +42,7 @@ function NavIcon({ name }: { name: string }) {
     list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></>,
     database: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" /><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" /></>,
     terminal: <><path d="M4 17l6-5-6-5" /><path d="M12 19h8" /></>,
+    network: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="M8 7l3 8" /><path d="M16 7l-3 8" /><path d="M8 6h8" /></>,
   }
 
   return (
