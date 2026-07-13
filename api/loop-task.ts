@@ -56,6 +56,8 @@ const validDestinations = new Set(['auto', 'telegram', 'worker-webhook'])
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+const LOOP_TASK_WORKER_TOKEN = process.env.LOOP_TASK_WORKER_TOKEN || process.env.ORCHESTRATOR_WORKER_TOKEN
+const WRITEBACK_STATUSES = new Set<TaskStatus>(['accepted', 'running', 'needs_review', 'done', 'failed', 'archived'])
 
 function deliveryReadiness() {
   const publicDeliveryEnabled = process.env.LOOP_TASK_PUBLIC_ENABLED === 'true'
@@ -270,6 +272,89 @@ async function sendWebhook(payload: { id: string; task: string; kind: string; pr
   if (!response.ok) throw new Error(`Webhook HTTP ${response.status}`)
 }
 
+
+function headerValue(req: VercelRequest, key: string) {
+  const found = req.headers[key] || req.headers[key.toLowerCase()]
+  return Array.isArray(found) ? found[0] : found
+}
+
+function workerAuthorized(req: VercelRequest) {
+  if (!LOOP_TASK_WORKER_TOKEN) return false
+  const auth = headerValue(req, 'authorization')
+  const token = headerValue(req, 'x-worker-token')
+  return auth === `Bearer ${LOOP_TASK_WORKER_TOKEN}` || token === LOOP_TASK_WORKER_TOKEN
+}
+
+function processForWriteback(status: TaskStatus, summary?: string | null) {
+  const doneLike = status === 'done'
+  const failedLike = status === 'failed'
+  const reviewLike = status === 'needs_review'
+  const active = status === 'running' || status === 'accepted'
+  return [
+    step('Capture request', 'done', 'Task remains in the persistent Supabase queue.'),
+    step('Validate scope', 'done', 'Writeback payload accepted.'),
+    step('Route to bot / worker', 'done', 'Delivery channel already completed earlier or was skipped.'),
+    step(
+      'Run / wait for agent',
+      doneLike || failedLike || reviewLike ? 'done' : active ? 'active' : 'pending',
+      status === 'accepted'
+        ? 'Worker/bot accepted the task.'
+        : status === 'running'
+          ? 'Worker/bot is actively executing the task.'
+          : status === 'needs_review'
+            ? 'Execution paused for human review.'
+            : doneLike
+              ? 'Agent finished successfully.'
+              : failedLike
+                ? (summary || 'Agent failed.')
+                : 'Waiting for next status update.',
+    ),
+    step(
+      'Verify & report back',
+      doneLike ? 'done' : failedLike ? 'error' : reviewLike ? 'active' : 'pending',
+      summary || (doneLike ? 'Result summary attached.' : failedLike ? 'Failure recorded.' : 'Awaiting further updates.'),
+    ),
+  ]
+}
+
+async function writeback(body: Record<string, unknown>) {
+  const task_id = typeof body.taskId === 'string' ? body.taskId.trim() : ''
+  if (!task_id) throw new Error('taskId required')
+  const status = typeof body.status === 'string' && WRITEBACK_STATUSES.has(body.status as TaskStatus)
+    ? body.status as TaskStatus
+    : null
+  if (!status) throw new Error('status must be one of accepted|running|needs_review|done|failed|archived')
+
+  const result_summary = typeof body.resultSummary === 'string'
+    ? body.resultSummary.trim().slice(0, 4000)
+    : typeof body.summary === 'string'
+      ? body.summary.trim().slice(0, 4000)
+      : undefined
+  const error = typeof body.error === 'string' ? body.error.trim().slice(0, 2000) : undefined
+  const message = typeof body.message === 'string'
+    ? body.message.trim().slice(0, 1000)
+    : result_summary || `Task status set to ${status}.`
+  const now = new Date().toISOString()
+  const patch: Partial<StoredTask> = {
+    status,
+    process: processForWriteback(status, result_summary || error || message),
+    delivery_message: message,
+  }
+  if (result_summary !== undefined) patch.result_summary = result_summary || null
+  if (error !== undefined) patch.error = error || null
+  if (status === 'accepted' || status === 'running') patch.claimed_at = now
+  if (status === 'done' || status === 'failed' || status === 'archived') patch.completed_at = now
+
+  const updated = await updateTask(task_id, patch)
+  if (!updated) throw new Error(`Task not found: ${task_id}`)
+  await insertEvent(task_id, `task_${status}`, message, {
+    resultSummary: result_summary || null,
+    error: error || null,
+    actor: body.actor || 'worker',
+  })
+  return { task: updated }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
   const readiness = deliveryReadiness()
@@ -292,8 +377,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
+  const body = asBody(req.body) as RequestBody & Record<string, unknown>
+  const action = typeof body.action === 'string' ? body.action : 'create'
+
+  if (action === 'writeback' || action === 'updateStatus') {
+    if (!workerAuthorized(req)) {
+      res.status(401).json({ ok: false, message: 'Worker token required for task writeback.', deliveryReadiness: readiness })
+      return
+    }
+    try {
+      const result = await writeback(body as Record<string, unknown>)
+      res.status(200).json({ ok: true, deliveryReadiness: readiness, ...result })
+    } catch (error) {
+      res.status(400).json({ ok: false, deliveryReadiness: readiness, message: error instanceof Error ? error.message : String(error) })
+    }
+    return
+  }
+
   const id = taskId()
-  const body = asBody(req.body)
   const task = typeof body.task === 'string' ? body.task.trim() : ''
   const kind = typeof body.kind === 'string' && validKinds.has(body.kind) ? body.kind : 'agent-run'
   const priority = typeof body.priority === 'string' && validPriorities.has(body.priority) ? body.priority : 'normal'

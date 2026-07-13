@@ -17,6 +17,16 @@ function shortTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(value))
 }
 
+function heartbeatLabel(last: string | null | undefined) {
+  if (!last) return { label: 'No heartbeat', tone: 'warn' as const }
+  const minutes = Math.floor(Math.max(0, Date.now() - new Date(last).getTime()) / 60000)
+  if (minutes < 5) return { label: `Fresh · ${minutes}m`, tone: 'ready' as const }
+  if (minutes < 60) return { label: `Aging · ${minutes}m`, tone: 'warn' as const }
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48) return { label: `Stale · ${hours}h`, tone: 'warn' as const }
+  return { label: `Stale · ${Math.floor(hours / 24)}d`, tone: 'warn' as const }
+}
+
 function asText(value: unknown) {
   return typeof value === 'string' ? value : ''
 }
@@ -115,6 +125,15 @@ export function ProjectOrchestrator() {
         <div className="header-actions">
           <button className="ghost-button" type="button" onClick={() => void load()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
           <span className={state?.workerTokenConfigured ? 'status-pill ready' : 'status-pill warn'}>{state?.workerTokenConfigured ? 'Worker token ready' : 'Worker token missing'}</span>
+          {(() => {
+            const latest = state?.heartbeats?.[0]
+            const hb = heartbeatLabel(latest?.last_heartbeat)
+            return (
+              <span className={`status-pill ${hb.tone}`} title={latest ? `${latest.worker_id} · ${latest.last_heartbeat}` : 'No worker heartbeat yet'}>
+                {latest ? `${latest.worker_id} · ${hb.label}` : 'No worker heartbeat'}
+              </span>
+            )
+          })()}
         </div>
       </div>
 
@@ -257,9 +276,14 @@ export function ProjectOrchestrator() {
           </div>
 
           <div className="worker-strip">
-            {(state?.heartbeats || []).map((worker) => (
-              <span className="worker-pill" key={worker.worker_id}>{worker.worker_id} · {worker.status} · {shortTime(worker.last_heartbeat)}</span>
-            ))}
+            {(state?.heartbeats || []).map((worker) => {
+              const hb = heartbeatLabel(worker.last_heartbeat)
+              return (
+                <span className="worker-pill" key={worker.worker_id}>
+                  {worker.worker_id} · {worker.status} · {hb.label} · {shortTime(worker.last_heartbeat)}
+                </span>
+              )
+            })}
             {!(state?.heartbeats || []).length ? <span className="worker-pill muted">No worker heartbeat yet</span> : null}
           </div>
         </div>

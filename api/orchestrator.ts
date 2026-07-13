@@ -172,7 +172,53 @@ async function listState() {
   return { projects, runs, assignments, events, agents, models, approvals, artifacts, heartbeats }
 }
 
+async function reclaimStaleLeases() {
+  const now = new Date().toISOString()
+  // recovery of expired leased/running assignments back to queued
+  const stale = await sb(`loop_agent_assignments?select=*&status=in.(leased,running)&lease_expires_at=lt.${encodeURIComponent(now)}&limit=20`) as Array<Record<string, unknown>>
+  for (const row of stale) {
+    const assignment_id = String(row.assignment_id)
+    const [reclaimed] = await patch(
+      'loop_agent_assignments',
+      `assignment_id=eq.${encodeURIComponent(assignment_id)}&status=in.(leased,running)&lease_expires_at=lt.${encodeURIComponent(now)}`,
+      {
+        status: 'queued',
+        lease_owner: null,
+        lease_expires_at: null,
+        error: 'Lease expired — reclaimed by orchestrator.',
+      },
+    ) as Array<Record<string, unknown>>
+    if (reclaimed) {
+      await event(String(row.run_id), 'assignment_reclaimed', `Stale lease reclaimed for ${assignment_id}.`, {
+        previousOwner: row.lease_owner || null,
+        previousStatus: row.status,
+        lease_expires_at: row.lease_expires_at,
+      }, assignment_id, String(row.agent_id || ''))
+    }
+  }
+  return { reclaimed: stale.length }
+}
+
+async function heartbeat(body: Record<string, unknown>) {
+  const worker_id = typeof body.workerId === 'string' && body.workerId.trim() ? body.workerId.trim().slice(0, 120) : 'worker-unknown'
+  const status = typeof body.status === 'string' && body.status.trim() ? body.status.trim().slice(0, 40) : 'online'
+  const metadata = body.metadata && typeof body.metadata === 'object' ? body.metadata as Record<string, unknown> : {}
+  const payload = {
+    worker_id,
+    status,
+    last_heartbeat: new Date().toISOString(),
+    metadata,
+  }
+  try {
+    await insert('loop_worker_heartbeats', payload)
+  } catch {
+    await patch('loop_worker_heartbeats', `worker_id=eq.${encodeURIComponent(worker_id)}`, payload)
+  }
+  return { worker_id, status, last_heartbeat: payload.last_heartbeat }
+}
+
 async function lease(body: Record<string, unknown>) {
+  await reclaimStaleLeases()
   const worker_id = typeof body.workerId === 'string' ? body.workerId : 'worker-unknown'
   const allowedAgents = Array.isArray(body.agentIds) ? body.agentIds.map(String) : []
   await insert('loop_worker_heartbeats', { worker_id, status: 'online', metadata: { allowedAgents } }).catch(async () => {
@@ -210,7 +256,10 @@ async function complete(body: Record<string, unknown>, status: AssignmentStatus)
     output,
     error: status === 'failed' ? String(body.error || 'Worker failed') : null,
     completed_at: ['done','failed','needs_review','blocked'].includes(status) ? new Date().toISOString() : null,
+    lease_owner: null,
+    lease_expires_at: null,
   }) as Array<Record<string, unknown>>
+  if (!assignment) throw new Error(`Assignment not found: ${assignment_id}`)
   await event(String(assignment.run_id), `assignment_${status}`, String(output.summary || body.error || `Assignment ${status}.`), { output }, assignment_id, String(assignment.agent_id))
   await reconcileRun(String(assignment.run_id))
   return { assignment }
@@ -285,7 +334,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const body = asBody(req.body)
     const action = String(body.action || 'createRun')
-    const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked','heartbeat'])
+    const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked','heartbeat','reclaimStale'])
     if (workerActions.has(action) && !workerAuthorized(req)) {
       res.status(401).json({ ok: false, message: 'Worker token required.' })
       return
@@ -298,6 +347,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     else if (action === 'fail') res.status(200).json({ ok: true, ...(await complete(body, 'failed')) })
     else if (action === 'needsReview') res.status(200).json({ ok: true, ...(await complete(body, 'needs_review')) })
     else if (action === 'blocked') res.status(200).json({ ok: true, ...(await complete(body, 'blocked')) })
+    else if (action === 'heartbeat') res.status(200).json({ ok: true, ...(await heartbeat(body)) })
+    else if (action === 'reclaimStale') res.status(200).json({ ok: true, ...(await reclaimStaleLeases()) })
     else if (action === 'createApproval') res.status(200).json({ ok: true, ...(await createApproval(body)) })
     else if (action === 'approve') res.status(200).json({ ok: true, ...(await approve(body, 'approved')) })
     else if (action === 'reject') res.status(200).json({ ok: true, ...(await approve(body, 'rejected')) })

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { LoopTaskDestination, LoopTaskHandoff, LoopTaskKind, LoopTaskPriority, LoopTaskProcessStep, LoopTaskStatus } from '../types.ts'
+import type { LoopTaskDestination, LoopTaskEvent, LoopTaskHandoff, LoopTaskKind, LoopTaskPriority, LoopTaskProcessStep, LoopTaskStatus } from '../types.ts'
 import { fetchTaskQueue } from '../data/taskQueue.ts'
 
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
@@ -145,18 +145,24 @@ function toProcessSteps(steps: LoopTaskProcessStep[]): ProcessStep[] {
   return steps.map((step, index) => ({ key: `${index}-${step.label}`, ...step }))
 }
 
-function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: () => void }) {
+function TaskDetailDrawer({ task, events = [], onClose }: { task: LoopTaskHandoff; events?: LoopTaskEvent[]; onClose: () => void }) {
   return (
     <div className="task-detail-backdrop" role="presentation" onClick={onClose}>
       <aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="Task details" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
           <div>
-            <p className="section-kicker">Task detail</p>
+            <p className="section-kicker">Task detail · closed loop</p>
             <h3>{statusCopy(task.status)} · {task.kind}</h3>
           </div>
           <button type="button" className="drawer-close" onClick={onClose}>Close</button>
         </div>
         <p className="drawer-task-text">{task.task}</p>
+        {task.result_summary ? (
+          <div className="drawer-result" style={{ marginBottom: '0.75rem' }}>
+            <p className="section-kicker">Result summary</p>
+            <p>{task.result_summary}</p>
+          </div>
+        ) : null}
         <div className="drawer-meta-grid">
           <div><small>Priority</small><strong>{task.priority}</strong></div>
           <div><small>Destination</small><strong>{task.resolved_destination}</strong></div>
@@ -167,6 +173,24 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task_id)}>Copy task id</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task)}>Copy prompt</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(`Verify task ${task.task_id} and update the Loop Engineering queue.`)}>Copy verify command</button>
+        </div>
+        <div className="drawer-timeline">
+          <p className="section-kicker">Event timeline</p>
+          {events.length === 0 ? (
+            <p className="helper-text">No worker events yet. Hermes/worker writeback will populate this trail.</p>
+          ) : (
+            <ol>
+              {events.map((event) => (
+                <li key={event.id} className="done">
+                  <span aria-hidden="true" />
+                  <div>
+                    <strong>{event.event_type}</strong>
+                    <small>{event.message || '—'} · {timeAgo(event.created_at)}</small>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
         <div className="drawer-timeline">
           <p className="section-kicker">Process timeline</p>
@@ -204,6 +228,7 @@ export function NewLoopTask() {
   const [tasks, setTasks] = useState<LoopTaskHandoff[]>([])
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done' | 'failed'>('all')
   const [selectedTask, setSelectedTask] = useState<LoopTaskHandoff | null>(null)
+  const [selectedEvents, setSelectedEvents] = useState<LoopTaskEvent[]>([])
   const [queueError, setQueueError] = useState<string | null>(null)
 
   const trimmed = task.trim()
@@ -235,6 +260,18 @@ export function NewLoopTask() {
       setQueueError(null)
       const json = await fetchTaskQueue()
       setTasks(json.tasks || [])
+    } catch (err) {
+      setQueueError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const openTask = async (task: LoopTaskHandoff) => {
+    setSelectedTask(task)
+    setSelectedEvents([])
+    try {
+      const detail = await fetchTaskQueue(task.task_id)
+      setSelectedEvents(detail.events || [])
+      if (detail.tasks?.[0]) setSelectedTask(detail.tasks[0])
     } catch (err) {
       setQueueError(err instanceof Error ? err.message : String(err))
     }
@@ -464,7 +501,7 @@ export function NewLoopTask() {
         {filteredTasks.length ? (
           <div className="handoff-list persistent">
             {filteredTasks.map((item) => (
-              <article key={item.task_id} className={item.status} onClick={() => setSelectedTask(item)} tabIndex={0} role="button" aria-label={`Open task ${item.task_id}`}>
+              <article key={item.task_id} className={item.status} onClick={() => void openTask(item)} tabIndex={0} role="button" aria-label={`Open task ${item.task_id}`}>
                 <div><strong>{statusCopy(item.status)}</strong><span>{timeAgo(item.created_at)} · {item.kind} · {item.priority} · {item.resolved_destination}</span></div>
                 <p>{shortTask(item.task)}</p>
                 <small>{item.delivery_message || item.error || 'Waiting for status update.'}</small>
@@ -476,7 +513,16 @@ export function NewLoopTask() {
           <p className="empty-handoffs">No matching tasks yet. Send a task to create a persistent queue row.</p>
         )}
       </div>
-      {selectedTask && <TaskDetailDrawer task={selectedTask} onClose={() => setSelectedTask(null)} />}
+      {selectedTask ? (
+        <TaskDetailDrawer
+          task={selectedTask}
+          events={selectedEvents}
+          onClose={() => {
+            setSelectedTask(null)
+            setSelectedEvents([])
+          }}
+        />
+      ) : null}
     </section>
   )
 }

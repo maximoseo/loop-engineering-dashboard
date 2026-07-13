@@ -66,7 +66,21 @@ def summarize_assignment(assignment: dict) -> tuple[str, dict]:
     return "needsReview", {"summary": summary, "reason": "MVP worker avoids autonomous code or production mutation.", "safeMode": True}
 
 
+def heartbeat(base_url: str, token: str, worker_id: str, agents: list[str]) -> dict:
+    return post(
+        base_url,
+        token,
+        {
+            "action": "heartbeat",
+            "workerId": worker_id,
+            "status": "online",
+            "metadata": {"agentIds": agents, "safeMode": True},
+        },
+    )
+
+
 def run_once(base_url: str, token: str, worker_id: str, agents: list[str]) -> dict:
+    heartbeat(base_url, token, worker_id, agents)
     lease = post(base_url, token, {"action": "lease", "workerId": worker_id, "agentIds": agents})
     assignment = lease.get("assignment")
     if not assignment:
