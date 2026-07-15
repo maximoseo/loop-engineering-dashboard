@@ -43,12 +43,39 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
 body {
   background: var(--bg-base);
   color: var(--text);
   font-family: var(--font-sans);
   min-height: 100vh;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
+  touch-action: manipulation;
+}
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.touch-44 {
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* Ambient background glow */
