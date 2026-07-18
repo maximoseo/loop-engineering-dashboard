@@ -13,6 +13,7 @@
     "verify": "npm run lint && npm run test && npm run build && npm run test:e2e"
   },
   "dependencies": {
+    "@sentry/react": "^10.66.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

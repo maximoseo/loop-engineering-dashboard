@@ -25,6 +25,9 @@ type VercelResponse = {
   setHeader: (name: string, value: string) => void
 }
 
+// Rate limiting utility
+import { rateLimit, getClientIdentifier } from './rate-limit'
+
 interface ProcessStep {
   label: string
   state: StepState
@@ -272,6 +275,21 @@ async function sendWebhook(payload: { id: string; task: string; kind: string; pr
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
+
+  // Rate limiting for POST (task submission)
+  if (req.method === 'POST') {
+    const clientId = getClientIdentifier(req)
+    const limit = rateLimit(clientId)
+    if (!limit.allowed) {
+      res.status(429).json({
+        ok: false,
+        message: `Rate limit exceeded. Try again in ${Math.ceil(limit.resetIn / 1000)}s.`,
+        retryAfter: Math.ceil(limit.resetIn / 1000),
+      })
+      return
+    }
+  }
+
   const readiness = deliveryReadiness()
 
   if (req.method === 'GET') {
