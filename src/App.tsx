@@ -14,6 +14,8 @@ const FailuresPage = lazy(() => import('./pages/FailuresPage.tsx'))
 const EvalsPage = lazy(() => import('./pages/EvalsPage.tsx'))
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.tsx'))
 const LessonsPage = lazy(() => import('./pages/LessonsPage.tsx'))
+const ActivationsPage = lazy(() => import('./pages/ActivationsPage.tsx'))
+const CostPage = lazy(() => import('./pages/CostPage.tsx'))
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, initializing } = useAuth()
@@ -56,6 +58,8 @@ export default function App() {
                 <Route path="evals" element={<EvalsPage />} />
                 <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="lessons" element={<LessonsPage />} />
+                <Route path="activations" element={<ActivationsPage />} />
+                <Route path="cost" element={<CostPage />} />
               </Route>
             </Routes>
           </Suspense>

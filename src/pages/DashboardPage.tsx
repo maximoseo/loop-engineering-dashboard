@@ -9,6 +9,7 @@ import { EvalResults } from '../components/EvalResults.tsx'
 import { IterationTimeline } from '../components/IterationTimeline.tsx'
 import { FailureLibrary } from '../components/FailureLibrary.tsx'
 import { OptimizationBacklog } from '../components/OptimizationBacklog.tsx'
+import { LoopHealthPanel } from '../components/LoopHealthPanel.tsx'
 
 export default function DashboardPage() {
   const { state, health, live, lastUpdated, elapsed, load } = useDashboard()
@@ -23,6 +24,8 @@ export default function DashboardPage() {
         elapsed={elapsed}
         onRefresh={() => void load(true)}
       />
+
+      <LoopHealthPanel state={state} live={live} elapsed={elapsed} />
 
       {/* Lower intelligence deck: data, graphs, history and review */}
       <section className="lower-intelligence-deck" aria-label="Operations intelligence, graphs and history">

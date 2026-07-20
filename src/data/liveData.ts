@@ -12,6 +12,8 @@ import type {
   ProposalStatus,
   ScoreBreakdown,
   LessonRecord,
+  ActivationRecord,
+  CostSummary,
 } from '../types.ts'
 import { mockLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
@@ -165,6 +167,22 @@ interface AllLessonRow {
   created_at: string
 }
 
+interface ActivationRow {
+  id: string
+  proposal_id: string
+  action: ActivationRecord['action']
+  reason: string | null
+  created_at: string
+}
+
+interface CostRow {
+  model: string | null
+  provider: string | null
+  input_tokens: number
+  output_tokens: number
+  estimated_cost_usd: number
+}
+
 interface EvalRow {
   run_id: string
   eval_name: string
@@ -231,7 +249,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
     return { state: mockLoopState, live: false, health: healthFromCounts }
   }
 
-  const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw, allLessonRows] =
+  const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw, allLessonRows, activationRows, costRows] =
     await Promise.all([
       safeRest<StateRow[]>('loop_state?id=eq.main', [], errors, 'loop_state'),
       safeRest<IterationRow[]>('loop_iterations?order=ts.desc&limit=8', [], errors, 'loop_iterations'),
@@ -252,6 +270,18 @@ export async function fetchLoopState(): Promise<LiveResult> {
         [],
         errors,
         'loop_lessons_all',
+      ),
+      safeRest<ActivationRow[]>(
+        'loop_activations?select=id,proposal_id,action,reason,created_at&order=created_at.desc&limit=40',
+        [],
+        errors,
+        'loop_activations',
+      ),
+      safeRest<CostRow[]>(
+        'loop_cost_events?select=model,provider,input_tokens,output_tokens,estimated_cost_usd&order=created_at.desc&limit=500',
+        [],
+        errors,
+        'loop_cost_events',
       ),
     ])
   const activated = activatedRaw ?? 0
@@ -406,6 +436,39 @@ export async function fetchLoopState(): Promise<LiveResult> {
     created_at: l.created_at,
   }))
 
+  const activations: ActivationRecord[] = activationRows.map((a) => ({
+    id: a.id,
+    proposal_id: a.proposal_id,
+    action: a.action,
+    reason: a.reason ?? undefined,
+    created_at: a.created_at,
+  }))
+  const costByModel = new Map<string, { input: number; output: number; cost: number; events: number }>()
+  let totIn = 0
+  let totOut = 0
+  let totCost = 0
+  for (const c of costRows) {
+    const key = c.model || c.provider || 'unknown'
+    const g = costByModel.get(key) ?? { input: 0, output: 0, cost: 0, events: 0 }
+    g.input += Number(c.input_tokens || 0)
+    g.output += Number(c.output_tokens || 0)
+    g.cost += Number(c.estimated_cost_usd || 0)
+    g.events += 1
+    costByModel.set(key, g)
+    totIn += Number(c.input_tokens || 0)
+    totOut += Number(c.output_tokens || 0)
+    totCost += Number(c.estimated_cost_usd || 0)
+  }
+  const cost: CostSummary = {
+    total_input_tokens: totIn,
+    total_output_tokens: totOut,
+    total_cost_usd: totCost,
+    events: costRows.length,
+    by_model: [...costByModel.entries()]
+      .map(([key, g]) => ({ key, input_tokens: g.input, output_tokens: g.output, cost_usd: g.cost, events: g.events }))
+      .sort((a, b) => b.cost_usd - a.cost_usd),
+  }
+
   const state: LoopState = {
     current_phase: currentIdx >= 0 ? (currentPhase as LoopPhase) : 'IDLE',
     is_loop_running: (stateRow?.phase ?? 'idle') !== 'idle',
@@ -424,6 +487,8 @@ export async function fetchLoopState(): Promise<LiveResult> {
     score_trend: scoreTrend.length ? scoreTrend : [0],
     score_history,
     lessons,
+    activations,
+    cost,
   }
 
   const health = buildDataHealth({

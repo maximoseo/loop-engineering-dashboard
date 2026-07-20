@@ -3,6 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom'
 import type { JSX } from 'react'
 import { useDashboard } from '../contexts/DashboardContext.tsx'
 import { useAuth } from '../contexts/AuthContext.tsx'
+import { CommandPalette } from './CommandPalette.tsx'
 
 type NavItem = { to: string; label: string; icon: string; group: 'Command' | 'Review' | 'History' }
 
@@ -14,6 +15,8 @@ const navItems: NavItem[] = [
   { to: '/evals', label: 'Evals', icon: 'check', group: 'Review' },
   { to: '/analytics', label: 'Analytics', icon: 'activity', group: 'Review' },
   { to: '/lessons', label: 'Lessons', icon: 'list', group: 'Review' },
+  { to: '/activations', label: 'Activations', icon: 'shield', group: 'History' },
+  { to: '/cost', label: 'Cost', icon: 'database', group: 'History' },
   { to: '/failures', label: 'Failures', icon: 'alert', group: 'History' },
 ]
 
@@ -113,6 +116,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text)]">
+      <CommandPalette />
       {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
