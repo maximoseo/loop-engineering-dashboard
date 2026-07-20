@@ -370,8 +370,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Auth only via headers — never a query param — so the secret can't leak into
   // access logs or URL history. Cron uses the Bearer CRON_SECRET Vercel injects;
   // manual/kick callers use the x-worker-secret header.
-  const cronOk = process.env.CRON_SECRET && req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`
-  const secret = (req.headers['x-worker-secret'] as string) || ''
+  const hdr = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || ''
+  const cronOk = process.env.CRON_SECRET && hdr(req.headers.authorization) === `Bearer ${process.env.CRON_SECRET}`
+  const secret = hdr(req.headers['x-worker-secret'])
   const manualOk = process.env.WORKER_SECRET && secret === process.env.WORKER_SECRET
   if (!cronOk && !manualOk) {
     res.status(401).json({ ok: false, message: 'Unauthorized worker call.' })
