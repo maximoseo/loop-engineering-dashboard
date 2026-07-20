@@ -11,6 +11,7 @@ import type {
   LoopTableName,
   ProposalStatus,
   ScoreBreakdown,
+  LessonRecord,
 } from '../types.ts'
 import { mockLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
@@ -132,6 +133,8 @@ interface ProposalRow {
   risk_level: ImprovementProposal['risk_level']
   status: ProposalStatus
   eval_summary: { baseline?: number; candidate?: number; rolled_back_reason?: string }
+  old_value?: string
+  new_value?: string
   created_at: string
 }
 
@@ -151,6 +154,15 @@ interface LessonRow {
   evidence: string | null
   confidence: number
   applied: boolean
+}
+
+interface AllLessonRow {
+  lesson_id: string
+  lesson_type: string
+  content: string
+  confidence: number
+  applied: boolean
+  created_at: string
 }
 
 interface EvalRow {
@@ -219,7 +231,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
     return { state: mockLoopState, live: false, health: healthFromCounts }
   }
 
-  const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw] =
+  const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw, allLessonRows] =
     await Promise.all([
       safeRest<StateRow[]>('loop_state?id=eq.main', [], errors, 'loop_state'),
       safeRest<IterationRow[]>('loop_iterations?order=ts.desc&limit=8', [], errors, 'loop_iterations'),
@@ -235,6 +247,12 @@ export async function fetchLoopState(): Promise<LiveResult> {
       safeRest<EvalRow[]>('loop_eval_results?order=created_at.desc&limit=32', [], errors, 'loop_eval_results'),
       safeCountRows('loop_proposals', errors, 'status=eq.active'),
       safeCountRows('loop_proposals', errors, 'status=eq.rolled_back'),
+      safeRest<AllLessonRow[]>(
+        'loop_lessons?select=lesson_id,lesson_type,content,confidence,applied,created_at&order=created_at.desc&limit=200',
+        [],
+        errors,
+        'loop_lessons_all',
+      ),
     ])
   const activated = activatedRaw ?? 0
   const rolledBack = rolledBackRaw ?? 0
@@ -312,6 +330,8 @@ export async function fetchLoopState(): Promise<LiveResult> {
     type: p.type,
     target: humanizeTarget(p.target),
     description: (p.rationale ?? '').slice(0, 160),
+    old_value: p.old_value,
+    new_value: p.new_value,
     status: p.status,
     risk_level: p.risk_level,
     eval_score_before: p.eval_summary?.baseline ?? 0,
@@ -375,6 +395,16 @@ export async function fetchLoopState(): Promise<LiveResult> {
     : 0
 
   const lastScoreRow = scoreRows[0]
+  const score_history: ScoreBreakdown[] = [...scoreRows].reverse().map(toBreakdown)
+  const lessons: LessonRecord[] = allLessonRows.map((l) => ({
+    id: l.lesson_id,
+    type: l.lesson_type,
+    target: '',
+    content: l.content,
+    applied: l.applied,
+    confidence: l.confidence,
+    created_at: l.created_at,
+  }))
 
   const state: LoopState = {
     current_phase: currentIdx >= 0 ? (currentPhase as LoopPhase) : 'IDLE',
@@ -392,6 +422,8 @@ export async function fetchLoopState(): Promise<LiveResult> {
     eval_results: evalResults,
     eval_run_label: evalRunLabel,
     score_trend: scoreTrend.length ? scoreTrend : [0],
+    score_history,
+    lessons,
   }
 
   const health = buildDataHealth({

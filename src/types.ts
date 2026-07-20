@@ -65,6 +65,8 @@ export interface ImprovementProposal {
   eval_score_before: number
   eval_score_after: number
   rolled_back_reason?: string
+  old_value?: string
+  new_value?: string
 }
 
 export interface FailurePattern {
@@ -83,6 +85,16 @@ export interface BacklogItem {
   description: string
   estimated_impact: string
   status: 'pending' | 'in_progress' | 'completed'
+}
+
+export interface LessonRecord {
+  id: string
+  type: string
+  target: string
+  content: string
+  applied: boolean
+  confidence: number
+  created_at: string
 }
 
 export interface EvalResult {
@@ -108,6 +120,8 @@ export interface LoopState {
   eval_run_label?: string
   score_trend: number[]
   is_loop_running: boolean
+  score_history?: ScoreBreakdown[]
+  lessons?: LessonRecord[]
 }
 
 export type LoopTaskKind = 'agent-run' | 'project' | 'debug' | 'dashboard' | 'proposal'
