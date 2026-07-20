@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -9,12 +9,16 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
  * go through the anon REST layer in liveData.ts; this client owns auth + any
  * future authenticated writes.
  */
-export const supabase = createClient(url ?? '', key ?? '', {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
+export const supabase: SupabaseClient = createClient(
+  url ?? 'https://placeholder.supabase.co',
+  key ?? 'placeholder-anon-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+    },
   },
-})
+)
 
 export const supabaseConfigured = Boolean(url && key)
