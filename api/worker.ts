@@ -367,8 +367,11 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
 
+  // Auth only via headers — never a query param — so the secret can't leak into
+  // access logs or URL history. Cron uses the Bearer CRON_SECRET Vercel injects;
+  // manual/kick callers use the x-worker-secret header.
   const cronOk = process.env.CRON_SECRET && req.headers.authorization === `Bearer ${process.env.CRON_SECRET}`
-  const secret = (req.query?.secret as string) || (req.headers['x-worker-secret'] as string) || ''
+  const secret = (req.headers['x-worker-secret'] as string) || ''
   const manualOk = process.env.WORKER_SECRET && secret === process.env.WORKER_SECRET
   if (!cronOk && !manualOk) {
     res.status(401).json({ ok: false, message: 'Unauthorized worker call.' })
