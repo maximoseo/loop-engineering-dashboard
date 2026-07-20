@@ -97,6 +97,30 @@ export interface LessonRecord {
   created_at: string
 }
 
+export interface ActivationRecord {
+  id: string
+  proposal_id: string
+  action: 'activated' | 'rolled_back' | 'rejected' | 'pending_approval' | 'approved'
+  reason?: string
+  created_at: string
+}
+
+export interface CostByGroup {
+  key: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  events: number
+}
+
+export interface CostSummary {
+  total_input_tokens: number
+  total_output_tokens: number
+  total_cost_usd: number
+  events: number
+  by_model: CostByGroup[]
+}
+
 export interface EvalResult {
   name: string
   status: EvalStatus
@@ -122,6 +146,8 @@ export interface LoopState {
   is_loop_running: boolean
   score_history?: ScoreBreakdown[]
   lessons?: LessonRecord[]
+  activations?: ActivationRecord[]
+  cost?: CostSummary
 }
 
 export type LoopTaskKind = 'agent-run' | 'project' | 'debug' | 'dashboard' | 'proposal'
