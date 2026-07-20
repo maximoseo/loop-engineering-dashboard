@@ -39,6 +39,35 @@ async function telegram(text: string) {
 
 function shorten(s: string, n = 140) { return s.length > n ? `${s.slice(0, n)}…` : s }
 
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || ''
+// Map the dashboard's model labels to OpenRouter model ids (default is a cheap,
+// reliable model; unknown labels fall back to it).
+const MODEL_MAP: Record<string, string> = { 'DeepSeek V4': 'deepseek/deepseek-chat' }
+function llmModel(name: string) { return MODEL_MAP[name] || 'openai/gpt-4o-mini' }
+
+// Run a non-URL task through an LLM so it produces a real answer instead of
+// sitting in needs_review. Effort controls the length budget.
+async function llmAnswer(task: string, modelName: string, effort: string): Promise<string> {
+  const max = effort === 'high' || effort === 'max' ? 1200 : effort === 'low' ? 350 : 700
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${OPENROUTER_API_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: llmModel(modelName),
+      max_tokens: max,
+      messages: [
+        { role: 'system', content: 'You are a Loop Engineering worker. Complete the user task concisely and concretely with actionable output. Plain text, short paragraphs or numbered points, no markdown headers.' },
+        { role: 'user', content: task },
+      ],
+    }),
+  })
+  if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 140)}`)
+  const j = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
+  const out = j.choices?.[0]?.message?.content?.trim()
+  if (!out) throw new Error('LLM returned empty')
+  return out
+}
+
 const CLAIMABLE = ['queued', 'delivered']
 
 interface StoredTask {
@@ -226,10 +255,31 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
   const effort = metaStr(task, 'effort')
   const url = firstUrl(task)
   if (!url) {
-    await patchTask(task.task_id, 'accepted', { status: 'needs_review' })
-    await event(task.task_id, 'needs_review', 'No URL found in the task — needs a human or a specialised agent to run this.', {})
-    await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
-    return { taskId: task.task_id, status: 'needs_review' }
+    // No URL to audit — run the task through an LLM so it still gets a real answer.
+    if (!OPENROUTER_API_KEY) {
+      await patchTask(task.task_id, 'accepted', { status: 'needs_review' })
+      await event(task.task_id, 'needs_review', 'No URL found and no LLM configured — needs a human or specialised agent.', {})
+      await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
+      return { taskId: task.task_id, status: 'needs_review' }
+    }
+    await patchTask(task.task_id, 'accepted', { status: 'running' })
+    await event(task.task_id, 'running', 'No URL — running the task through an LLM…', {})
+    await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}`)
+    try {
+      let answer = await llmAnswer(task.task, metaStr(task, 'model'), effort)
+      if (ranAs) answer += `\n\nRan as: ${ranAs}.`
+      await event(task.task_id, 'result_ready', 'LLM response written to result_summary.', {})
+      await patchTask(task.task_id, 'running', { status: 'done', result_summary: answer, completed_at: new Date().toISOString() })
+      await event(task.task_id, 'done', 'Task completed by the worker (LLM).', {})
+      await telegram(`✅ Done\n${shorten(task.task)}\n\n${answer}\n\nSee it on the dashboard → Task queue.`)
+      return { taskId: task.task_id, status: 'done' }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      await patchTask(task.task_id, 'running', { status: 'failed', error: message })
+      await event(task.task_id, 'failed', `LLM run failed: ${message}`, {})
+      await telegram(`❌ Failed\n${shorten(task.task)}\n${message}`)
+      return { taskId: task.task_id, status: 'failed' }
+    }
   }
 
   await patchTask(task.task_id, 'accepted', { status: 'running' })

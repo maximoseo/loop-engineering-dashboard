@@ -2132,3 +2132,31 @@ html {
   background: rgba(139, 92, 246, 0.06);
   border: 1px solid var(--border);
 }
+
+/* App-wide "task done" toast */
+.toast-stack {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 340px;
+}
+.toast {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  text-decoration: none;
+  border: 1px solid rgba(34, 197, 94, 0.32);
+  background: linear-gradient(180deg, rgba(20, 20, 43, 0.96), rgba(20, 20, 43, 0.9));
+  box-shadow: 0 12px 34px -12px rgba(0, 0, 0, 0.7);
+  animation: toastIn 0.25s ease-out;
+}
+.toast strong { color: #4ade80; font-size: 0.82rem; }
+.toast span { color: var(--text); font-size: 0.8rem; line-height: 1.35; }
+.toast small { color: var(--accent-bright); font-size: 0.72rem; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }

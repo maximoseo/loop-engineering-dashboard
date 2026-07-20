@@ -1,9 +1,42 @@
-import { useState } from 'react'
-import { Outlet, NavLink } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Outlet, NavLink, Link } from 'react-router-dom'
 import type { JSX } from 'react'
 import { useDashboard } from '../contexts/DashboardContext.tsx'
 import { useAuth } from '../contexts/AuthContext.tsx'
 import { CommandPalette } from './CommandPalette.tsx'
+import { supabase } from '../lib/supabase.ts'
+
+// App-wide toast: fires when any task reaches "done" — on every page — so you
+// know work finished even when you're not looking at the queue.
+function DoneToaster() {
+  const [toasts, setToasts] = useState<Array<{ id: string; task: string }>>([])
+  useEffect(() => {
+    const channel = supabase
+      .channel('done-toaster')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'loop_task_handoffs' }, (payload) => {
+        const row = payload.new as { task_id?: string; status?: string; task?: string }
+        if (row?.status === 'done' && row.task_id) {
+          const id = row.task_id
+          setToasts((t) => (t.some((x) => x.id === id) ? t : [...t, { id, task: row.task || 'Task' }]))
+          setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 9000)
+        }
+      })
+      .subscribe()
+    return () => { void supabase.removeChannel(channel) }
+  }, [])
+  if (!toasts.length) return null
+  return (
+    <div className="toast-stack" role="status" aria-live="polite">
+      {toasts.map((t) => (
+        <Link key={t.id} to="/queue" className="toast" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>
+          <strong>✅ Task done</strong>
+          <span>{t.task.length > 72 ? `${t.task.slice(0, 72)}…` : t.task}</span>
+          <small>Open in Task queue →</small>
+        </Link>
+      ))}
+    </div>
+  )
+}
 
 type NavItem = { to: string; label: string; icon: string; group: 'Command' | 'Review' | 'History' }
 
@@ -117,6 +150,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text)]">
       <CommandPalette />
+      <DoneToaster />
       {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
