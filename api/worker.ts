@@ -47,7 +47,10 @@ export function llmModel(name: string) { return MODEL_MAP[name] || 'openai/gpt-4
 
 // Run a non-URL task through an LLM so it produces a real answer instead of
 // sitting in needs_review. Effort controls the length budget.
-async function llmChat(system: string, user: string, modelName: string, maxTokens: number): Promise<string> {
+// Per-task cost accumulator (Firecrawl credits + LLM tokens).
+interface Cost { firecrawl_credits: number; llm_tokens: number }
+
+async function llmChat(system: string, user: string, modelName: string, maxTokens: number, cost?: Cost): Promise<string> {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { authorization: `Bearer ${OPENROUTER_API_KEY}`, 'content-type': 'application/json' },
@@ -62,7 +65,8 @@ async function llmChat(system: string, user: string, modelName: string, maxToken
     signal: AbortSignal.timeout(25000), // never hang the worker on a slow model
   })
   if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 140)}`)
-  const j = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
+  const j = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { total_tokens?: number } }
+  if (cost && typeof j.usage?.total_tokens === 'number') cost.llm_tokens += j.usage.total_tokens
   const out = j.choices?.[0]?.message?.content?.trim()
   if (!out) throw new Error('LLM returned empty')
   return out
@@ -70,9 +74,9 @@ async function llmChat(system: string, user: string, modelName: string, maxToken
 
 // Run a non-URL task through an LLM so it produces a real answer instead of
 // sitting in needs_review. Effort controls the length budget.
-async function llmAnswer(task: string, modelName: string, effort: string): Promise<string> {
+async function llmAnswer(task: string, modelName: string, effort: string, cost?: Cost): Promise<string> {
   const max = effort === 'high' || effort === 'max' ? 1200 : effort === 'low' ? 350 : 700
-  return llmChat('You are a Loop Engineering worker. Complete the user task concisely and concretely with actionable output. Plain text, short paragraphs or numbered points, no markdown headers.', task, modelName, max)
+  return llmChat('You are a Loop Engineering worker. Complete the user task concisely and concretely with actionable output. Plain text, short paragraphs or numbered points, no markdown headers.', task, modelName, max, cost)
 }
 
 // Each bot reviews the same page through a different lens.
@@ -86,10 +90,10 @@ function botLens(bot: string) { return BOT_LENS[bot] || BOT_LENS['SEO Researcher
 
 // Turn the deterministic signals + rule findings into prioritised, explained
 // fixes through the chosen bot's lens. Best-effort layer on top of the rules.
-async function llmInterpret(url: string, deterministic: string, bot: string, modelName: string, effort: string): Promise<string> {
+async function llmInterpret(url: string, deterministic: string, bot: string, modelName: string, effort: string, cost?: Cost): Promise<string> {
   const max = effort === 'high' || effort === 'max' ? 1100 : effort === 'low' ? 350 : 650
   const sys = `You are a ${bot || 'SEO Researcher'} reviewing a web page. ${botLens(bot)} Given the machine-collected signals and rule-based findings, return the top prioritised fixes as a numbered list — each with what to change, why it matters, and the expected impact. Be specific and concrete. Plain text, no markdown headers.`
-  return llmChat(sys, `URL: ${url}\n\nSignals & rule-based findings:\n${deterministic}`, modelName, max)
+  return llmChat(sys, `URL: ${url}\n\nSignals & rule-based findings:\n${deterministic}`, modelName, max, cost)
 }
 
 const CLAIMABLE = ['queued', 'delivered']
@@ -152,7 +156,7 @@ interface Scrape {
   links: string[]
 }
 
-async function firecrawl(url: string): Promise<Scrape> {
+async function firecrawl(url: string, cost?: Cost): Promise<Scrape> {
   const res = await fetch('https://api.firecrawl.dev/v1/scrape', {
     method: 'POST',
     headers: { authorization: `Bearer ${FIRECRAWL_API_KEY}`, 'content-type': 'application/json' },
@@ -165,6 +169,7 @@ async function firecrawl(url: string): Promise<Scrape> {
   const json = await res.json() as { success?: boolean; data?: { rawHtml?: string; html?: string; links?: string[]; metadata?: Record<string, unknown> }; error?: string }
   if (!json.success || !json.data) throw new Error(`Firecrawl: ${json.error || 'no data'}`)
   const m = json.data.metadata || {}
+  if (cost) cost.firecrawl_credits += typeof m.creditsUsed === 'number' ? (m.creditsUsed as number) : 1
   return {
     title: (m.title as string) || (m.ogTitle as string) || undefined,
     description: (m.description as string) || (m.ogDescription as string) || undefined,
@@ -289,6 +294,8 @@ async function requeueStale(): Promise<{ requeued: number; deadLettered: number 
 async function processOne(task: StoredTask): Promise<{ taskId: string; status: string }> {
   const ranAs = [metaStr(task, 'bot'), metaStr(task, 'model'), metaStr(task, 'effort')].filter(Boolean).join(' · ')
   const effort = metaStr(task, 'effort')
+  const cost: Cost = { firecrawl_credits: 0, llm_tokens: 0 }
+  const withCost = () => ({ ...(task.metadata || {}), cost })
   const url = firstUrl(task)
   if (!url) {
     // No URL to audit — run the task through an LLM so it still gets a real answer.
@@ -302,10 +309,10 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
     await event(task.task_id, 'running', 'No URL — running the task through an LLM…', {})
     await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}`)
     try {
-      let answer = await llmAnswer(task.task, metaStr(task, 'model'), effort)
+      let answer = await llmAnswer(task.task, metaStr(task, 'model'), effort, cost)
       if (ranAs) answer += `\n\nRan as: ${ranAs}.`
       await event(task.task_id, 'result_ready', 'LLM response written to result_summary.', {})
-      await patchTask(task.task_id, 'running', { status: 'done', result_summary: answer, completed_at: new Date().toISOString() })
+      await patchTask(task.task_id, 'running', { status: 'done', result_summary: answer, completed_at: new Date().toISOString(), metadata: withCost() })
       await event(task.task_id, 'done', 'Task completed by the worker (LLM).', {})
       await telegram(`✅ Done\n${shorten(task.task)}\n\n${answer}\n\nSee it on the dashboard → Task queue.`)
       return { taskId: task.task_id, status: 'done' }
@@ -330,14 +337,14 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
 
   let summary: string
   try {
-    const scrape = await firecrawl(url)
+    const scrape = await firecrawl(url, cost)
     summary = auditSite(url, scrape, effort)
     // Layer an LLM interpretation through the chosen bot's lens on top of the
     // deterministic findings (best-effort — deterministic result stays if it fails).
     if (OPENROUTER_API_KEY) {
       try {
         const bot = metaStr(task, 'bot')
-        const interpreted = await llmInterpret(url, summary, bot, metaStr(task, 'model'), effort)
+        const interpreted = await llmInterpret(url, summary, bot, metaStr(task, 'model'), effort, cost)
         summary += `\n\n— ${bot || 'Reviewer'} analysis —\n${interpreted}`
       } catch { /* keep deterministic-only */ }
     }
@@ -351,7 +358,7 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
   }
 
   await event(task.task_id, 'result_ready', 'Audit complete — result written to result_summary.', {})
-  await patchTask(task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString() })
+  await patchTask(task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString(), metadata: withCost() })
   await event(task.task_id, 'done', 'Task completed by the worker.', {})
   await telegram(`✅ Done — ${url}\n\n${summary}\n\nSee the full process on the dashboard → Task queue.`)
   return { taskId: task.task_id, status: 'done' }

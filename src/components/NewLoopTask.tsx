@@ -258,6 +258,10 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
           <div><small>Destination</small><strong>{task.resolved_destination}</strong></div>
           <div><small>Created</small><strong>{timeAgo(task.created_at)}</strong></div>
           <div><small>Updated</small><strong>{timeAgo(live.updated_at)}</strong></div>
+          {(() => {
+            const c = (live.metadata as { cost?: { firecrawl_credits?: number; llm_tokens?: number } } | null | undefined)?.cost
+            return c ? <div><small>Cost</small><strong>{c.firecrawl_credits ?? 0} cr · {c.llm_tokens ?? 0} tok</strong></div> : null
+          })()}
         </div>
         <div className="drawer-actions">
           <button type="button" onClick={() => {
