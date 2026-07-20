@@ -25,6 +25,14 @@ export interface OrchestratorState {
   message?: string
 }
 
+import { supabase } from '../lib/supabase.ts'
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  return token ? { authorization: `Bearer ${token}` } : {}
+}
+
 export interface CreateRunInput {
   name: string
   objective: string
@@ -44,7 +52,7 @@ export async function fetchOrchestratorState(): Promise<OrchestratorState> {
 export async function createOrchestratorRun(input: CreateRunInput): Promise<OrchestratorState & { project: OrchestratorProject; run: OrchestratorRun; assignments: AgentAssignment[] }> {
   const response = await fetch('/api/orchestrator', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ action: 'createRun', ...input }),
   })
   const payload = await response.json()
@@ -55,7 +63,7 @@ export async function createOrchestratorRun(input: CreateRunInput): Promise<Orch
 export async function requestApproval(runId: string, actionType: string, reason: string, riskLevel: RunApproval['risk_level'] = 'medium') {
   const response = await fetch('/api/orchestrator', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ action: 'createApproval', runId, actionType, reason, riskLevel }),
   })
   const payload = await response.json()

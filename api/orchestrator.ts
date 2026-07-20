@@ -16,6 +16,7 @@ type AssignmentStatus = 'queued' | 'leased' | 'running' | 'blocked' | 'needs_rev
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
 const WORKER_TOKEN = process.env.ORCHESTRATOR_WORKER_TOKEN
 
 function id(prefix: string) {
@@ -44,6 +45,22 @@ function workerAuthorized(req: VercelRequest) {
   const auth = header(req, 'authorization')
   const token = header(req, 'x-worker-token')
   return auth === `Bearer ${WORKER_TOKEN}` || token === WORKER_TOKEN
+}
+
+// Verifies a Supabase user JWT (sent by the signed-in dashboard) against the
+// Auth API. Used to gate operator mutations for authenticated dashboard users
+// without exposing a static secret in the browser bundle.
+async function userAuthorized(req: VercelRequest) {
+  const auth = header(req, 'authorization')
+  if (!auth || !auth.startsWith('Bearer ') || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_ANON_KEY, authorization: auth },
+    })
+    return r.ok
+  } catch {
+    return false
+  }
 }
 
 function supabaseHeaders(prefer?: string) {
@@ -288,6 +305,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked','heartbeat'])
     if (workerActions.has(action) && !workerAuthorized(req)) {
       res.status(401).json({ ok: false, message: 'Worker token required.' })
+      return
+    }
+
+    // Operator mutations require either the worker token or a signed-in dashboard user.
+    const operatorActions = new Set(['createRun','createApproval','approve','reject'])
+    if (operatorActions.has(action) && !workerAuthorized(req) && !(await userAuthorized(req))) {
+      res.status(401).json({ ok: false, message: 'Sign in required to perform this action.' })
       return
     }
 
