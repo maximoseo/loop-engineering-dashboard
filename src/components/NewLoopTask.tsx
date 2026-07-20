@@ -304,7 +304,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
                 <button type="button" onClick={() => {
                   const blob = new Blob([live.result_summary || ''], { type: 'text/markdown;charset=utf-8' })
                   const url = URL.createObjectURL(blob); const a = document.createElement('a')
-                  a.href = url; a.download = `result-${live.task_id}.md`; a.click(); URL.revokeObjectURL(url)
+                  a.href = url; a.download = `result-${live.task_id}.md`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
                 }}>Download</button>
               </div>
             </div>

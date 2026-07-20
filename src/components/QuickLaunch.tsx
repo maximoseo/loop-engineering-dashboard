@@ -18,7 +18,7 @@ function downloadText(name: string, text: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url; a.download = name; a.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 1000) // let the download start before revoking
 }
 
 const TERMINAL = new Set(['done', 'failed', 'blocked_config', 'archived', 'needs_review'])
