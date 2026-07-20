@@ -179,6 +179,23 @@ async function firecrawl(url: string, cost?: Cost): Promise<Scrape> {
   }
 }
 
+// Map a site to its page URLs (fast) so a multi-page audit knows what to sample.
+async function firecrawlMap(url: string, cost?: Cost): Promise<string[]> {
+  const res = await fetch('https://api.firecrawl.dev/v1/map', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${FIRECRAWL_API_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ url, limit: 25 }),
+    signal: AbortSignal.timeout(20000),
+  })
+  if (!res.ok) throw new Error(`Firecrawl map HTTP ${res.status}: ${(await res.text()).slice(0, 140)}`)
+  const j = await res.json() as { success?: boolean; links?: Array<string | { url?: string }>; error?: string }
+  if (cost) cost.firecrawl_credits += 1
+  const links = (j.links || [])
+    .map((l) => (typeof l === 'string' ? l : l?.url))
+    .filter((l): l is string => typeof l === 'string' && /^https?:\/\//i.test(l))
+  return Array.from(new Set([url, ...links])) // homepage first, deduped
+}
+
 // Deterministic SEO/UX heuristics over the fetched HTML — no LLM required.
 export function auditSite(url: string, s: Scrape, effort: string): string {
   const html = s.html
@@ -305,7 +322,7 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
       await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
       return { taskId: task.task_id, status: 'needs_review' }
     }
-    await patchTask(task.task_id, 'accepted', { status: 'running' })
+    if (!(await patchTask(task.task_id, 'accepted', { status: 'running' }))) return { taskId: task.task_id, status: 'lost' }
     await event(task.task_id, 'running', 'No URL — running the task through an LLM…', {})
     await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}`)
     try {
@@ -325,7 +342,9 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
     }
   }
 
-  await patchTask(task.task_id, 'accepted', { status: 'running' })
+  // Guard the claim: if the accepted→running PATCH returns null, another worker
+  // (or the reaper) took this task — abort to avoid duplicate work/notifications.
+  if (!(await patchTask(task.task_id, 'accepted', { status: 'running' }))) return { taskId: task.task_id, status: 'lost' }
   await event(task.task_id, 'running', `Fetching ${url} and analysing SEO/UX signals…`, {})
   await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}\n${url}`)
 
@@ -335,18 +354,37 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
     return { taskId: task.task_id, status: 'failed' }
   }
 
+  // Multi-page ("site") audit when the task asks for it; otherwise the existing
+  // single-page path (unchanged).
+  const wantsSite = /\b(site audit|whole site|entire site|all pages|multi[- ]?page|crawl the site)\b/i.test(task.task)
   let summary: string
   try {
-    const scrape = await firecrawl(url, cost)
-    summary = auditSite(url, scrape, effort)
-    // Layer an LLM interpretation through the chosen bot's lens on top of the
-    // deterministic findings (best-effort — deterministic result stays if it fails).
-    if (OPENROUTER_API_KEY) {
-      try {
-        const bot = metaStr(task, 'bot')
-        const interpreted = await llmInterpret(url, summary, bot, metaStr(task, 'model'), effort, cost)
-        summary += `\n\n— ${bot || 'Reviewer'} analysis —\n${interpreted}`
-      } catch { /* keep deterministic-only */ }
+    if (wantsSite) {
+      const pages = (await firecrawlMap(url, cost)).slice(0, 4) // cap to stay inside the time budget
+      await event(task.task_id, 'running', `Auditing ${pages.length} page(s) of the site…`, {})
+      const parts = await Promise.all(pages.map(async (p) => {
+        try { const sc = await firecrawl(p, cost); return `### ${p}\n${auditSite(p, sc, 'low')}` }
+        catch (e) { return `### ${p}\n(could not audit: ${e instanceof Error ? e.message : String(e)})` }
+      }))
+      summary = `Multi-page SEO/UX audit — ${url}\nAudited ${pages.length} page(s).\n\n${parts.join('\n\n———\n\n')}`
+      if (OPENROUTER_API_KEY) {
+        try {
+          const syn = await llmInterpret(url, summary.slice(0, 4000), metaStr(task, 'bot'), metaStr(task, 'model'), effort, cost)
+          summary += `\n\n— Site-wide analysis —\n${syn}`
+        } catch { /* keep per-page findings */ }
+      }
+    } else {
+      const scrape = await firecrawl(url, cost)
+      summary = auditSite(url, scrape, effort)
+      // Layer an LLM interpretation through the chosen bot's lens on top of the
+      // deterministic findings (best-effort — deterministic result stays if it fails).
+      if (OPENROUTER_API_KEY) {
+        try {
+          const bot = metaStr(task, 'bot')
+          const interpreted = await llmInterpret(url, summary, bot, metaStr(task, 'model'), effort, cost)
+          summary += `\n\n— ${bot || 'Reviewer'} analysis —\n${interpreted}`
+        } catch { /* keep deterministic-only */ }
+      }
     }
     if (ranAs) summary += `\n\nRan as: ${ranAs}.`
   } catch (err) {
