@@ -127,6 +127,23 @@ function statusCopy(status: SubmitStatus | LoopTaskStatus) {
   return map[status] || status
 }
 
+const eventLabels: Record<string, string> = {
+  task_created: 'Created',
+  delivery_succeeded: 'Delivered',
+  delivery_blocked: 'Delivery blocked',
+  accepted: 'Accepted',
+  running: 'Running',
+  processing_started: 'Processing started',
+  result_ready: 'Result ready',
+  needs_review: 'Needs review',
+  done: 'Done',
+  failed: 'Failed',
+}
+
+function eventLabel(type: string) {
+  return eventLabels[type] || type.replace(/_/g, ' ')
+}
+
 function shortTask(task: string) {
   return task.length > 110 ? `${task.slice(0, 110)}…` : task
 }
@@ -145,8 +162,39 @@ function toProcessSteps(steps: LoopTaskProcessStep[]): ProcessStep[] {
   return steps.map((step, index) => ({ key: `${index}-${step.label}`, ...step }))
 }
 
+interface TaskEvent {
+  id?: string
+  created_at: string
+  event_type: string
+  message: string
+}
+
 function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: () => void }) {
   const drawerRef = useRef<HTMLElement>(null)
+  const [events, setEvents] = useState<TaskEvent[]>([])
+  const [loadingEvents, setLoadingEvents] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingEvents(true)
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/loop-task?taskId=${encodeURIComponent(task.task_id)}`)
+        const json = await response.json() as { events?: TaskEvent[] }
+        if (!cancelled) setEvents(json.events || [])
+      } catch {
+        /* keep last known events */
+      } finally {
+        if (!cancelled) setLoadingEvents(false)
+      }
+    }
+    void poll()
+    // Live progress: keep polling while the task is still moving.
+    const active = ['queued', 'delivered', 'accepted', 'running', 'needs_review'].includes(task.status)
+    const interval = active ? setInterval(() => void poll(), 8_000) : null
+    return () => { cancelled = true; if (interval) clearInterval(interval) }
+  }, [task.task_id, task.status])
+
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null
     drawerRef.current?.focus()
@@ -200,19 +248,40 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
           <button type="button" onClick={() => void navigator.clipboard?.writeText(`Verify task ${task.task_id} and update the Loop Engineering queue.`)}>Copy verify command</button>
         </div>
         <div className="drawer-timeline">
-          <p className="section-kicker">Process timeline</p>
-          <ol>
-            {toProcessSteps(task.process || []).map((step) => (
-              <li key={step.key} className={step.state}>
-                <span aria-hidden="true" />
-                <div><strong>{step.label}</strong><small>{step.detail}</small></div>
-              </li>
-            ))}
-          </ol>
+          <p className="section-kicker">Progress timeline {loadingEvents && <span className="drawer-live-dot" aria-hidden="true" />}</p>
+          {events.length ? (
+            <ol className="event-timeline">
+              {events.map((event, index) => (
+                <li key={event.id || `${index}-${event.event_type}`} className={event.event_type}>
+                  <span aria-hidden="true" />
+                  <div>
+                    <strong>{eventLabel(event.event_type)}</strong>
+                    <small>{event.message}</small>
+                    <time>{timeAgo(event.created_at)}</time>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <ol>
+              {toProcessSteps(task.process || []).map((step) => (
+                <li key={step.key} className={step.state}>
+                  <span aria-hidden="true" />
+                  <div><strong>{step.label}</strong><small>{step.detail}</small></div>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
+        {task.result_summary && (
+          <div className="drawer-result-summary">
+            <p className="section-kicker">Result</p>
+            <pre>{task.result_summary}</pre>
+          </div>
+        )}
         <div className="drawer-result">
           <p className="section-kicker">Latest message</p>
-          <p>{task.delivery_message || task.result_summary || task.error || 'No result yet.'}</p>
+          <p>{task.delivery_message || task.error || 'No result yet.'}</p>
           <code>{task.task_id}</code>
         </div>
       </aside>
@@ -498,7 +567,7 @@ export function NewLoopTask() {
               <article key={item.task_id} className={item.status} onClick={() => setSelectedTask(item)} tabIndex={0} role="button" aria-label={`Open task ${item.task_id}`}>
                 <div><strong>{statusCopy(item.status)}</strong><span>{timeAgo(item.created_at)} · {item.kind} · {item.priority} · {item.resolved_destination}</span></div>
                 <p>{shortTask(item.task)}</p>
-                <small>{item.delivery_message || item.error || 'Waiting for status update.'}</small>
+                <small>{item.status === 'done' && item.result_summary ? '✓ Result ready — open to read' : (item.delivery_message || item.error || 'Waiting for status update.')}</small>
                 <code>{item.task_id}</code>
               </article>
             ))}
