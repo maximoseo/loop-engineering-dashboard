@@ -49,7 +49,7 @@ export function MetricsSummary({ avgScore, totalIterations, activated, rolledBac
       suffix: '',
       helper: 'Live Supabase rows',
       tone: 'info',
-      spark: scoreTrend.map((_, i) => i + 1).slice(-12),
+      spark: [],
       context: 'run history',
     },
     {
@@ -58,7 +58,7 @@ export function MetricsSummary({ avgScore, totalIterations, activated, rolledBac
       suffix: '',
       helper: 'Currently activated',
       tone: 'good',
-      spark: [1, 1, 1, 2, 2, 2, activated].slice(-7),
+      spark: [],
       context: 'learned assets',
     },
     {
@@ -67,7 +67,7 @@ export function MetricsSummary({ avgScore, totalIterations, activated, rolledBac
       suffix: '',
       helper: rolledBack === 0 ? 'No rollback events' : 'Watch regressions',
       tone: rolledBack === 0 ? 'neutral' : 'bad',
-      spark: [0, 0, 0, 0, 0, 0, rolledBack].slice(-7),
+      spark: [],
       context: 'risk control',
     },
   ]

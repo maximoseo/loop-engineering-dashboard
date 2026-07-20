@@ -29,8 +29,13 @@
   /* Text */
   --text: #f4f4f5;
   --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --text-dim: #52525b;
+  --text-muted: #9ca3b0;
+  --text-dim: #8b90a0;
+
+  /* Surface & border aliases (referenced across components) */
+  --border: rgba(139, 92, 246, 0.22);
+  --card: rgba(20, 20, 43, 0.55);
+  --bg-card: #14142b;
 
   /* Fonts */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -1479,6 +1484,49 @@ html {
 .mode-card strong, .mode-card span { display: block; }
 .mode-card span { margin-top: 0.22rem; color: var(--text-muted); font-size: 0.78rem; line-height: 1.35; }
 .primary-action.wide { width: 100%; justify-content: center; min-height: 46px; }
+
+/* --- Orchestrator primitives (previously referenced but undefined) --- */
+.glass-card {
+  background: var(--bg-glass);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  padding: 1.1rem 1.25rem;
+}
+.primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.15rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-glow);
+  background: var(--accent-gradient);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.primary-action:hover { filter: brightness(1.1); }
+.primary-action:disabled { opacity: 0.5; cursor: not-allowed; }
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.ghost-button:hover { border-color: var(--border-glow); color: var(--text); }
+.section-header { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-bottom: 0.35rem; }
+.eyebrow { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-cyan); }
+.status-pill.ready { color: var(--success); border-color: rgba(34, 211, 238, 0.35); background: rgba(34, 211, 238, 0.08); }
 .error-text { margin-top: 0.65rem; color: #fca5a5; font-size: 0.82rem; }
 .agent-matrix { display: grid; gap: 0.55rem; }
 .agent-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) auto; gap: 0.7rem; align-items: center; border: 1px solid rgba(148, 163, 184, 0.12); background: rgba(2, 6, 23, 0.38); border-radius: 0.85rem; padding: 0.7rem; }
