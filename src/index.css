@@ -2198,3 +2198,17 @@ html {
   cursor: pointer;
 }
 .result-actions button:hover { border-color: var(--accent); color: var(--accent-bright); }
+
+/* Task queue search (Wave C) */
+.queue-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.queue-search {
+  padding: 6px 12px;
+  border-radius: 9px;
+  font-size: 0.8rem;
+  min-width: 180px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+.queue-search::placeholder { color: var(--text-dim); }
+.queue-search:focus { outline: 2px solid var(--accent); border-color: var(--accent); }

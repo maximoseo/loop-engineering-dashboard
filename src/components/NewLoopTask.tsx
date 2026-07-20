@@ -189,6 +189,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
     const poll = async () => {
       try {
         const response = await fetch(`/api/loop-task?taskId=${encodeURIComponent(task.task_id)}`)
+        if (!response.ok) return
         const json = await response.json() as { tasks?: LoopTaskHandoff[]; events?: TaskEvent[] }
         if (!cancelled) {
           setEvents(json.events || [])
@@ -264,7 +265,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
             void fetch('/api/loop-task', {
               method: 'POST', headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ task: live.task, kind: live.kind, priority: live.priority, bot: m.bot, model: m.model, effort: m.effort, contextUrl: m.contextUrl }),
-            }).then(() => onClose())
+            }).then(() => onClose()).catch(() => onClose())
           }}>Re-run</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task_id)}>Copy task id</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task)}>Copy prompt</button>
@@ -335,8 +336,10 @@ export function NewLoopTask() {
   const [readiness, setReadiness] = useState<DeliveryReadiness>(fallbackReadiness)
   const [tasks, setTasks] = useState<LoopTaskHandoff[]>([])
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done' | 'failed'>('all')
+  const [search, setSearch] = useState('')
   const [selectedTask, setSelectedTask] = useState<LoopTaskHandoff | null>(null)
   const [queueError, setQueueError] = useState<string | null>(null)
+  const mountedRef = useRef(true)
 
   const trimmed = task.trim()
   const canSubmit = trimmed.length >= 10 && trimmed.length <= 4000 && !submitting
@@ -355,20 +358,26 @@ export function NewLoopTask() {
     return { active, review, failed, done, total: tasks.length }
   }, [tasks])
 
-  const filteredTasks = useMemo(() => tasks.filter((item) => {
-    if (statusFilter === 'all') return true
-    if (statusFilter === 'active') return activeStatuses.includes(item.status)
-    if (statusFilter === 'done') return item.status === 'done'
-    return item.status === 'failed' || item.status === 'blocked_config'
-  }), [statusFilter, tasks])
+  const filteredTasks = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return tasks.filter((item) => {
+      const statusOk =
+        statusFilter === 'all' ? true :
+        statusFilter === 'active' ? activeStatuses.includes(item.status) :
+        statusFilter === 'done' ? item.status === 'done' :
+        item.status === 'failed' || item.status === 'blocked_config'
+      if (!statusOk) return false
+      if (!q) return true
+      return item.task.toLowerCase().includes(q) || item.task_id.toLowerCase().includes(q)
+    })
+  }, [statusFilter, search, tasks])
 
   const loadQueue = async () => {
     try {
-      setQueueError(null)
       const json = await fetchTaskQueue()
-      setTasks(json.tasks || [])
+      if (mountedRef.current) { setQueueError(null); setTasks(json.tasks || []) }
     } catch (err) {
-      setQueueError(err instanceof Error ? err.message : String(err))
+      if (mountedRef.current) setQueueError(err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -394,7 +403,7 @@ export function NewLoopTask() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_task_handoffs' }, () => { void loadQueue() })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_task_events' }, () => { void loadQueue() })
       .subscribe()
-    return () => { cancelled = true; clearInterval(interval); void supabase.removeChannel(channel) }
+    return () => { cancelled = true; mountedRef.current = false; clearInterval(interval); void supabase.removeChannel(channel) }
   }, [])
 
   const selectTemplate = (template: typeof templates[number]) => {
@@ -594,10 +603,20 @@ export function NewLoopTask() {
             <p className="section-kicker">Persistent task queue</p>
             <h3>Latest Loop handoffs from Supabase</h3>
           </div>
-          <div className="queue-filters" aria-label="Task queue filters">
-            {(['all', 'active', 'done', 'failed'] as const).map((filter) => (
-              <button key={filter} type="button" aria-pressed={statusFilter === filter} onClick={() => setStatusFilter(filter)}>{filter}</button>
-            ))}
+          <div className="queue-controls">
+            <input
+              type="search"
+              className="queue-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search tasks…"
+              aria-label="Search the task queue"
+            />
+            <div className="queue-filters" aria-label="Task queue filters">
+              {(['all', 'active', 'done', 'failed'] as const).map((filter) => (
+                <button key={filter} type="button" aria-pressed={statusFilter === filter} onClick={() => setStatusFilter(filter)}>{filter}</button>
+              ))}
+            </div>
           </div>
         </div>
         {queueError && <p className="task-error" role="alert">{queueError}</p>}
