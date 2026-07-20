@@ -307,12 +307,21 @@ async function requeueStale(): Promise<{ requeued: number; deadLettered: number 
   return { requeued, deadLettered }
 }
 
+// How many prior completed audits exist for a domain (built forward from when
+// per-domain history shipped — matches on metadata.domain).
+async function priorAudits(domain: string): Promise<{ count: number; lastAt: string | null }> {
+  const res = await sb(`loop_task_handoffs?select=completed_at&status=eq.done&metadata->>domain=eq.${encodeURIComponent(domain)}&order=completed_at.desc&limit=50`)
+  const rows = await res.json() as Array<{ completed_at: string | null }>
+  return { count: rows.length, lastAt: rows[0]?.completed_at || null }
+}
+
 // Process a single already-claimed task end to end.
 async function processOne(task: StoredTask): Promise<{ taskId: string; status: string }> {
   const ranAs = [metaStr(task, 'bot'), metaStr(task, 'model'), metaStr(task, 'effort')].filter(Boolean).join(' · ')
   const effort = metaStr(task, 'effort')
   const cost: Cost = { firecrawl_credits: 0, llm_tokens: 0 }
-  const withCost = () => ({ ...(task.metadata || {}), cost })
+  const extraMeta: Record<string, unknown> = {}
+  const withCost = () => ({ ...(task.metadata || {}), cost, ...extraMeta })
   const url = firstUrl(task)
   if (!url) {
     // No URL to audit — run the task through an LLM so it still gets a real answer.
@@ -386,6 +395,16 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
         } catch { /* keep deterministic-only */ }
       }
     }
+    // Per-domain audit history (best-effort): record the domain and note prior audits.
+    try {
+      const domain = new URL(url).hostname
+      extraMeta.domain = domain
+      const prior = await priorAudits(domain)
+      const note = prior.count > 0
+        ? `Audit #${prior.count + 1} of ${domain} — previous audit ${prior.lastAt ? `on ${prior.lastAt.slice(0, 10)}` : 'earlier'}. Compare to see if the site improved.`
+        : `First tracked audit of ${domain}.`
+      summary = `${note}\n\n${summary}`
+    } catch { /* history is best-effort */ }
     if (ranAs) summary += `\n\nRan as: ${ranAs}.`
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
