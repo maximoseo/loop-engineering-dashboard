@@ -10,6 +10,7 @@ import { IterationTimeline } from '../components/IterationTimeline.tsx'
 import { FailureLibrary } from '../components/FailureLibrary.tsx'
 import { OptimizationBacklog } from '../components/OptimizationBacklog.tsx'
 import { LoopHealthPanel } from '../components/LoopHealthPanel.tsx'
+import { PanelBoundary } from '../components/PanelBoundary.tsx'
 
 export default function DashboardPage() {
   const { state, health, live, lastUpdated, elapsed, load } = useDashboard()
@@ -25,9 +26,12 @@ export default function DashboardPage() {
         onRefresh={() => void load(true)}
       />
 
-      <LoopHealthPanel state={state} live={live} elapsed={elapsed} />
+      <PanelBoundary label="health panel">
+        <LoopHealthPanel state={state} live={live} elapsed={elapsed} />
+      </PanelBoundary>
 
       {/* Lower intelligence deck: data, graphs, history and review */}
+      <PanelBoundary label="operations deck">
       <section className="lower-intelligence-deck" aria-label="Operations intelligence, graphs and history">
         <div className="deck-hero">
           <div>
@@ -86,6 +90,7 @@ export default function DashboardPage() {
           <OptimizationBacklog backlog={state.optimization_backlog} />
         </div>
       </section>
+      </PanelBoundary>
 
       {/* Footer */}
       <footer className="pt-6 pb-2 text-center text-xs text-[var(--text-dim)]">

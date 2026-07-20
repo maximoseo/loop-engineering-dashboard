@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { humanizeTarget, summarizeCost } from './loopFormat.ts'
+import { humanizeTarget, summarizeCost, cleanIterationTask } from './loopFormat.ts'
+
+describe('cleanIterationTask', () => {
+  it('labels a judge/scoring prompt', () => {
+    expect(cleanIterationTask('You are a strict evaluation judge for an AI agent...')).toBe('Loop self-scoring session')
+  })
+  it('labels a lesson-extraction prompt', () => {
+    expect(cleanIterationTask('You extract reusable lessons from a completed task...')).toBe('Lesson-extraction session')
+  })
+  it('passes a normal task through unchanged', () => {
+    expect(cleanIterationTask('Check Vercel failed deploy emails')).toBe('Check Vercel failed deploy emails')
+  })
+  it('falls back for empty', () => {
+    expect(cleanIterationTask('   ')).toBe('Untitled task')
+  })
+})
 
 describe('humanizeTarget', () => {
   it('turns a Windows SKILL.md path into the parent skill name', () => {

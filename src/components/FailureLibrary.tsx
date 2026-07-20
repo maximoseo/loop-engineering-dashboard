@@ -26,10 +26,14 @@ export function FailureLibrary({ failures }: Props) {
           return (
             <div
               key={f.id}
-              className="rounded-xl glass glass-hover overflow-hidden transition-all duration-300 cursor-pointer"
-              onClick={() => setExpanded(isOpen ? null : f.id)}
+              className="rounded-xl glass glass-hover overflow-hidden transition-all duration-300"
             >
-              <div className="flex items-center gap-3 p-3 md:p-4">
+              <button
+                type="button"
+                className="w-full flex items-center gap-3 p-3 md:p-4 text-left cursor-pointer"
+                onClick={() => setExpanded(isOpen ? null : f.id)}
+                aria-expanded={isOpen}
+              >
                 <div
                   className="flex items-center justify-center w-7 h-7 rounded-lg shrink-0 font-mono text-xs font-bold"
                   style={{ background: `${freqColor}15`, color: freqColor, border: `1px solid ${freqColor}40` }}
@@ -49,7 +53,7 @@ export function FailureLibrary({ failures }: Props) {
                 >
                   <polyline points="6 9 12 15 18 9" />
                 </svg>
-              </div>
+              </button>
               {isOpen && (
                 <div className="px-4 pb-4 pt-1 space-y-2 animate-fade-in">
                   <div className="flex items-center gap-2 text-xs text-[var(--text-dim)] font-mono">

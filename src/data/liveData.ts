@@ -14,7 +14,7 @@ import type {
   LessonRecord,
   ActivationRecord,
 } from '../types.ts'
-import { humanizeTarget, summarizeCost } from '../lib/loopFormat.ts'
+import { humanizeTarget, summarizeCost, cleanIterationTask } from '../lib/loopFormat.ts'
 import { emptyLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
 
@@ -333,7 +333,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
     return {
       id: r.task_id,
       timestamp: shortTime(r.ts),
-      task: task.slice(0, 120),
+      task: cleanIterationTask(task).slice(0, 120),
       score: score ? toBreakdown(score) : emptyBreakdown(0),
       lessons_extracted: lessonCount.get(r.task_id) ?? 0,
       proposals_made: proposalCount.get(r.task_id) ?? 0,
