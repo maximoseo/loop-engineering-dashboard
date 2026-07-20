@@ -301,6 +301,22 @@ async function sendWebhook(payload: { id: string; task: string; kind: string; pr
   if (!response.ok) throw new Error(`Webhook HTTP ${response.status}`)
 }
 
+// Kick the worker so a freshly-submitted task starts processing within seconds
+// instead of waiting for the next cron tick. Best-effort: the request reaches a
+// separate /api/worker invocation that runs to completion on its own; we only
+// wait long enough to hand it off, and the every-minute cron is the backstop.
+async function kickWorker(req: VercelRequest) {
+  const secret = process.env.WORKER_SECRET
+  const host = (req.headers['x-forwarded-host'] as string) || (req.headers.host as string)
+  if (!secret || !host) return
+  const proto = (req.headers['x-forwarded-proto'] as string) || 'https'
+  try {
+    await fetch(`${proto}://${host}/api/worker?secret=${encodeURIComponent(secret)}`, {
+      signal: AbortSignal.timeout(2500),
+    })
+  } catch { /* handed off (or cron will pick it up) */ }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
 
@@ -395,6 +411,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       process = processForDelivered('worker-webhook')
       await updateTask(id, { status, resolved_destination, delivery_message: message, process })
       await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination })
+      await kickWorker(req)
       res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
       return
     }
@@ -407,6 +424,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       process = processForDelivered('telegram')
       await updateTask(id, { status, resolved_destination, delivery_message: message, process, telegram_message_id: telegramMessageId })
       await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination, telegramMessageId })
+      await kickWorker(req)
       res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
       return
     }

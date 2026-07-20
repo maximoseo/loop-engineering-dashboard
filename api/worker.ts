@@ -22,6 +22,22 @@ type VercelResponse = {
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || ''
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY || ''
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || ''
+
+// Fire a Telegram message to the configured chat. Best-effort: never throws.
+async function telegram(text: string) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text.slice(0, 3900), disable_web_page_preview: true }),
+    })
+  } catch { /* best effort */ }
+}
+
+function shorten(s: string, n = 140) { return s.length > n ? `${s.slice(0, n)}…` : s }
 
 const CLAIMABLE = ['queued', 'delivered']
 
@@ -199,12 +215,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!url) {
       await patchTask(task.task_id, 'accepted', { status: 'needs_review' })
       await event(task.task_id, 'needs_review', 'No URL found in the task — needs a human or a specialised agent to run this.', {})
+      await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
       res.status(200).json({ ok: true, processed: task.task_id, status: 'needs_review', reason: 'no_url' })
       return
     }
 
     await patchTask(task.task_id, 'accepted', { status: 'running' })
     await event(task.task_id, 'running', `Fetching ${url} and analysing SEO/UX signals…`, {})
+    await telegram(`🔄 Working on it…\n${shorten(task.task)}\n${url}`)
 
     if (!FIRECRAWL_API_KEY) {
       await patchTask(task.task_id, 'running', { status: 'failed', error: 'FIRECRAWL_API_KEY not set' })
@@ -221,6 +239,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const message = err instanceof Error ? err.message : String(err)
       await patchTask(task.task_id, 'running', { status: 'failed', error: message })
       await event(task.task_id, 'failed', `Could not fetch/analyse the page: ${message}`, {})
+      await telegram(`❌ Failed — ${url}\n${shorten(task.task)}\n${message}`)
       res.status(200).json({ ok: false, processed: task.task_id, status: 'failed', error: message })
       return
     }
@@ -228,6 +247,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await event(task.task_id, 'result_ready', 'Audit complete — result written to result_summary.', {})
     await patchTask(task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString() })
     await event(task.task_id, 'done', 'Task completed by the worker.', {})
+    await telegram(`✅ Done — ${url}\n\n${summary}\n\nSee the full process on the dashboard → Task queue.`)
     res.status(200).json({ ok: true, processed: task.task_id, status: 'done', url })
   } catch (error) {
     res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })
