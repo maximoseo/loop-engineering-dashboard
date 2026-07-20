@@ -4,9 +4,10 @@ import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App.tsx'
 
-if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
+const sentryDsn = import.meta.env.VITE_SENTRY_DSN
+if (import.meta.env.PROD && sentryDsn && !sentryDsn.includes('placeholder')) {
   Sentry.init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
+    dsn: sentryDsn,
     environment: import.meta.env.VITE_VERCEL_ENV || 'production',
     tracesSampleRate: 0.1,
     replaysSessionSampleRate: 0.1,

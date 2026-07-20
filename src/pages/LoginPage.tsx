@@ -1,51 +1,73 @@
 import { useAuth } from '../contexts/AuthContext.tsx'
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 
 export default function LoginPage() {
   const { login, loading } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    await login(email, password)
-    navigate('/')
+    setError(null)
+    try {
+      await login(email, password)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign in failed. Check your credentials and try again.')
+    }
   }
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text)] flex items-center justify-center">
       <form onSubmit={handleSubmit} className="glass rounded-xl p-8 w-full max-w-sm space-y-5">
         <h1 className="text-2xl font-semibold text-center">Sign in</h1>
-        <p className="text-sm text-[var(--text-dim)] text-center">Loop Engineering Dashboard</p>
+        <p className="text-sm text-[var(--text-secondary)] text-center">Loop Engineering Dashboard</p>
+        {error && (
+          <p
+            role="alert"
+            className="text-sm text-[var(--error)] bg-[color:rgba(248,113,113,0.1)] border border-[color:rgba(248,113,113,0.35)] rounded-lg px-3 py-2"
+          >
+            {error}
+          </p>
+        )}
         <label className="block space-y-1.5">
-          <span className="text-xs text-[var(--text-dim)]">Email</span>
+          <span className="text-xs text-[var(--text-secondary)]">Email</span>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"
             className="w-full rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-3 py-2 text-sm"
           />
         </label>
         <label className="block space-y-1.5">
-          <span className="text-xs text-[var(--text-dim)]">Password</span>
+          <span className="text-xs text-[var(--text-secondary)]">Password</span>
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
+            autoComplete="current-password"
             className="w-full rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-3 py-2 text-sm"
           />
         </label>
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg bg-[var(--accent-bright)] text-white py-2 text-sm font-medium disabled:opacity-50"
+          className="w-full rounded-lg bg-[var(--accent)] text-white py-2 text-sm font-medium disabled:opacity-50"
         >
           {loading ? 'Signing in…' : 'Sign in'}
         </button>
+        <p className="text-xs text-[var(--text-secondary)] text-center">
+          No account?{' '}
+          <Link to="/signup" className="text-[var(--accent-bright)] underline">
+            Sign up
+          </Link>
+        </p>
       </form>
     </div>
   )

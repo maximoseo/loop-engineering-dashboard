@@ -295,11 +295,22 @@ export async function fetchLoopState(): Promise<LiveResult> {
     }
   })
 
+  const humanizeTarget = (raw: string): string => {
+    if (!raw) return 'Proposal'
+    const parts = raw.split(/[\\/]/).filter(Boolean)
+    let seg = parts[parts.length - 1] || raw
+    if (/\.md$/i.test(seg) && parts.length > 1) seg = parts[parts.length - 2]
+    return seg
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[-_]+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  }
   const improvements: ImprovementProposal[] = proposalRows.map((p) => ({
     id: p.proposal_id,
     timestamp: shortTime(p.created_at),
     type: p.type,
-    target: p.target,
+    target: humanizeTarget(p.target),
     description: (p.rationale ?? '').slice(0, 160),
     status: p.status,
     risk_level: p.risk_level,
