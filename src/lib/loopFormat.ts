@@ -17,6 +17,26 @@ export function humanizeTarget(raw: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+const META_TASK_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^you are a strict evaluation judge/i, 'Loop self-scoring session'],
+  [/^you extract reusable lessons/i, 'Lesson-extraction session'],
+  [/^you are an? (expert )?(proposal|improvement|skill)/i, 'Proposal-generation session'],
+]
+
+/**
+ * Some observed sessions are the loop's own scoring / lesson-extraction calls, whose
+ * `user_request` is a long judge prompt. Show a friendly label for those instead of
+ * leaking the raw prompt; everything else is returned unchanged.
+ */
+export function cleanIterationTask(text: string): string {
+  const t = (text || '').trim()
+  if (!t) return 'Untitled task'
+  for (const [pattern, label] of META_TASK_PATTERNS) {
+    if (pattern.test(t)) return label
+  }
+  return t
+}
+
 export interface CostRowLike {
   model?: string | null
   provider?: string | null
