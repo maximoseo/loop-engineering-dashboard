@@ -32,7 +32,7 @@ function latestEvent(events: AgentEvent[], assignmentId: string) {
   return events.find((event) => event.assignment_id === assignmentId)
 }
 
-export function ProjectOrchestrator() {
+export function ProjectOrchestrator({ initialRunId, onSelectRun }: { initialRunId?: string; onSelectRun?: (runId: string) => void } = {}) {
   const [state, setState] = useState<OrchestratorState | null>(null)
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -49,7 +49,10 @@ export function ProjectOrchestrator() {
     try {
       const next = await fetchOrchestratorState()
       setState(next)
-      if (!selectedRunId && next.runs[0]) setSelectedRunId(next.runs[0].run_id)
+      if (!selectedRunId) {
+        const target = initialRunId && next.runs.some((r) => r.run_id === initialRunId) ? initialRunId : next.runs[0]?.run_id
+        if (target) setSelectedRunId(target)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -63,6 +66,10 @@ export function ProjectOrchestrator() {
     return () => clearInterval(interval)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (initialRunId) setSelectedRunId(initialRunId)
+  }, [initialRunId])
 
   const selectedRun = useMemo(() => state?.runs.find((run) => run.run_id === selectedRunId) || state?.runs[0] || null, [state, selectedRunId])
   const runAssignments = useMemo(() => state?.assignments.filter((item) => item.run_id === selectedRun?.run_id) || [], [state, selectedRun])
@@ -188,7 +195,7 @@ export function ProjectOrchestrator() {
               <span className="mini-label">Live run board</span>
               <h3>{selectedRun ? `${selectedRun.mode.replaceAll('_', ' ')} · ${selectedRun.status}` : 'No run selected'}</h3>
             </div>
-            <select className="orchestrator-select" value={selectedRun?.run_id || ''} onChange={(event) => setSelectedRunId(event.target.value)}>
+            <select className="orchestrator-select" value={selectedRun?.run_id || ''} onChange={(event) => { setSelectedRunId(event.target.value); onSelectRun?.(event.target.value) }}>
               {(state?.runs || []).map((run) => <option key={run.run_id} value={run.run_id}>{run.run_id} · {run.status}</option>)}
             </select>
           </div>
