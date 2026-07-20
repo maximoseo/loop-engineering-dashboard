@@ -67,10 +67,10 @@ export function QuickLaunch() {
         if (t?.result_summary) setResultSummary(t.result_summary)
         if (t?.status && (TERMINAL.has(t.status) || !ACTIVE.has(t.status))) stopPolling()
       } catch { /* keep last known */ }
-      if (tries >= 60) stopPolling() // ~5 min safety cap
+      if (tries >= 120) stopPolling() // ~3 min safety cap
     }
     void tick()
-    pollRef.current = setInterval(() => void tick(), 5000)
+    pollRef.current = setInterval(() => void tick(), 1500)
   }
 
   const submit = async (e: FormEvent) => {
@@ -95,6 +95,13 @@ export function QuickLaunch() {
       setResult({ ok: Boolean(payload.ok), taskId: payload.taskId, status: payload.status, message: payload.message })
       if (payload.ok && payload.taskId) {
         setLiveStatus(payload.status || 'delivered')
+        // Seed the timeline immediately so the process is visible the instant
+        // the task is accepted — polling then fills in accepted/running/done.
+        const now = new Date().toISOString()
+        setEvents([
+          { event_type: 'task_created', message: 'Task created in persistent queue.', created_at: now },
+          { event_type: 'delivery_succeeded', message: payload.message || 'Delivered.', created_at: now },
+        ])
         setTask('')
         startPolling(payload.taskId)
       }

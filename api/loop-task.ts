@@ -311,8 +311,11 @@ async function kickWorker(req: VercelRequest) {
   if (!secret || !host) return
   const proto = (req.headers['x-forwarded-proto'] as string) || 'https'
   try {
+    // Short hand-off: the request reaches a separate /api/worker invocation that
+    // runs to completion on its own; we only wait long enough to send it so the
+    // POST response (and the dashboard's "delivered" state) is not held up.
     await fetch(`${proto}://${host}/api/worker?secret=${encodeURIComponent(secret)}`, {
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(800),
     })
   } catch { /* handed off (or cron will pick it up) */ }
 }
