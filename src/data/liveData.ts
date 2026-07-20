@@ -13,8 +13,8 @@ import type {
   ScoreBreakdown,
   LessonRecord,
   ActivationRecord,
-  CostSummary,
 } from '../types.ts'
+import { humanizeTarget, summarizeCost } from '../lib/loopFormat.ts'
 import { emptyLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
 
@@ -343,17 +343,6 @@ export async function fetchLoopState(): Promise<LiveResult> {
     }
   })
 
-  const humanizeTarget = (raw: string): string => {
-    if (!raw) return 'Proposal'
-    const parts = raw.split(/[\\/]/).filter(Boolean)
-    let seg = parts[parts.length - 1] || raw
-    if (/\.md$/i.test(seg) && parts.length > 1) seg = parts[parts.length - 2]
-    return seg
-      .replace(/\.[a-z0-9]+$/i, '')
-      .replace(/[-_]+/g, ' ')
-      .trim()
-      .replace(/\b\w/g, (c) => c.toUpperCase())
-  }
   const improvements: ImprovementProposal[] = proposalRows.map((p) => ({
     id: p.proposal_id,
     timestamp: shortTime(p.created_at),
@@ -443,31 +432,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
     reason: a.reason ?? undefined,
     created_at: a.created_at,
   }))
-  const costByModel = new Map<string, { input: number; output: number; cost: number; events: number }>()
-  let totIn = 0
-  let totOut = 0
-  let totCost = 0
-  for (const c of costRows) {
-    const key = c.model || c.provider || 'unknown'
-    const g = costByModel.get(key) ?? { input: 0, output: 0, cost: 0, events: 0 }
-    g.input += Number(c.input_tokens || 0)
-    g.output += Number(c.output_tokens || 0)
-    g.cost += Number(c.estimated_cost_usd || 0)
-    g.events += 1
-    costByModel.set(key, g)
-    totIn += Number(c.input_tokens || 0)
-    totOut += Number(c.output_tokens || 0)
-    totCost += Number(c.estimated_cost_usd || 0)
-  }
-  const cost: CostSummary = {
-    total_input_tokens: totIn,
-    total_output_tokens: totOut,
-    total_cost_usd: totCost,
-    events: costRows.length,
-    by_model: [...costByModel.entries()]
-      .map(([key, g]) => ({ key, input_tokens: g.input, output_tokens: g.output, cost_usd: g.cost, events: g.events }))
-      .sort((a, b) => b.cost_usd - a.cost_usd),
-  }
+  const cost = summarizeCost(costRows)
 
   const state: LoopState = {
     current_phase: currentIdx >= 0 ? (currentPhase as LoopPhase) : 'IDLE',
