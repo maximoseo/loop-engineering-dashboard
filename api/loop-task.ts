@@ -13,6 +13,7 @@ type RequestBody = {
   bot?: unknown
   model?: unknown
   effort?: unknown
+  parentTaskId?: unknown
 }
 
 type VercelRequest = {
@@ -403,6 +404,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const model = typeof body.model === 'string' ? body.model.trim().slice(0, 60) : ''
   const validEfforts = new Set(['low', 'medium', 'high', 'max'])
   const effort = typeof body.effort === 'string' && validEfforts.has(body.effort) ? body.effort : ''
+  const parentTaskId = typeof body.parentTaskId === 'string' ? body.parentTaskId.trim().slice(0, 80) : ''
 
   if (task.length < 10 || task.length > 4000) {
     const process = processForInvalidInput()
@@ -426,7 +428,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       resolved_destination,
       delivery_message: message,
       process,
-      metadata: { expectedResult, contextUrl, bot, model, effort },
+      metadata: { expectedResult, contextUrl, bot, model, effort, ...(parentTaskId ? { parent_task_id: parentTaskId } : {}) },
     })
   } catch (error) {
     res.status(500).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: error instanceof Error ? error.message : String(error), process })

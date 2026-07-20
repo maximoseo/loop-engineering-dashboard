@@ -255,6 +255,9 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
           <button type="button" className="drawer-close" onClick={onClose}>Close</button>
         </div>
         <p className="drawer-task-text">{task.task}</p>
+        {(live.metadata as { parent_task_id?: string } | null | undefined)?.parent_task_id && (
+          <p className="drawer-parent">↳ Follow-up of <code>{(live.metadata as { parent_task_id?: string }).parent_task_id}</code></p>
+        )}
         <div className="drawer-meta-grid">
           <div><small>Priority</small><strong>{task.priority}</strong></div>
           <div><small>Destination</small><strong>{task.resolved_destination}</strong></div>
@@ -274,6 +277,17 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
               body: JSON.stringify({ task: live.task, kind: live.kind, priority: live.priority, bot: m.bot, model: m.model, effort: m.effort, contextUrl: m.contextUrl }),
             }).then(() => onClose()).catch(() => onClose())
           }}>Re-run</button>
+          <button type="button" onClick={() => {
+            const suggestion = `Follow up on: ${shortTask(live.task)}`
+            const txt = window.prompt('Describe the follow-up task:', suggestion)
+            if (!txt || txt.trim().length < 10) return
+            const token = getAccessToken()
+            const m = (live.metadata as Record<string, unknown>) || {}
+            void fetch('/api/loop-task', {
+              method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+              body: JSON.stringify({ task: txt.trim(), kind: live.kind, priority: live.priority, bot: m.bot, model: m.model, effort: m.effort, parentTaskId: live.task_id }),
+            }).then(() => onClose()).catch(() => onClose())
+          }}>Follow up</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task_id)}>Copy task id</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task)}>Copy prompt</button>
         </div>

@@ -2225,3 +2225,7 @@ html {
   .result-head { flex-direction: column; align-items: flex-start; gap: 6px; }
   .toast-stack { left: 12px; right: 12px; max-width: none; }
 }
+
+/* Follow-up thread link */
+.drawer-parent { font-size: 0.76rem; color: var(--text-dim); margin: -4px 0 8px; }
+.drawer-parent code { color: var(--accent-bright); }
