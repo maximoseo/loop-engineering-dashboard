@@ -10,8 +10,8 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
  * future authenticated writes.
  */
 export const supabase: SupabaseClient = createClient(
-  url ?? 'https://placeholder.supabase.co',
-  key ?? 'placeholder-anon-key',
+  url || 'https://placeholder.supabase.co',
+  key || 'placeholder-anon-key',
   {
     auth: {
       persistSession: true,
