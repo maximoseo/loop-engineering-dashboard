@@ -384,15 +384,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const { requeued, deadLettered } = await requeueStale()
-    // Batch: drain up to 3 tasks per invocation so a backlog clears faster than
-    // one-per-minute. Each is claimed atomically and processed end to end.
+    // Batch: claim up to 3 tasks (claims are fast atomic PATCHes), then process
+    // them concurrently — the slow part (scrape + LLM) runs in parallel, so a
+    // 3-task batch finishes in ~1× instead of ~3× and stays well inside the 60s cap.
     const BATCH = 3
-    const processed: Array<{ taskId: string; status: string }> = []
+    const claimed: StoredTask[] = []
     for (let i = 0; i < BATCH; i++) {
       const task = await claimOldest()
       if (!task) break
-      processed.push(await processOne(task))
+      claimed.push(task)
     }
+    const processed = await Promise.all(claimed.map((task) => processOne(task)))
     res.status(200).json({ ok: true, requeued, deadLettered, count: processed.length, processed })
   } catch (error) {
     res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })
