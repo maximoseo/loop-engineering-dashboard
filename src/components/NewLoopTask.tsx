@@ -173,17 +173,32 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
   const drawerRef = useRef<HTMLElement>(null)
   const [events, setEvents] = useState<TaskEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(true)
+  // Live task row — the prop is a snapshot from the (30s) list, so the worker's
+  // status + result_summary would otherwise never appear. Poll refreshes it.
+  const [live, setLive] = useState<LoopTaskHandoff>(task)
+
+  // Reset to the clicked task when a different row is opened.
+  useEffect(() => { setLive(task) }, [task.task_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false
     setLoadingEvents(true)
+    const TERMINAL = ['done', 'failed', 'blocked_config', 'archived']
+    let interval: ReturnType<typeof setInterval> | null = null
     const poll = async () => {
       try {
         const response = await fetch(`/api/loop-task?taskId=${encodeURIComponent(task.task_id)}`)
-        const json = await response.json() as { events?: TaskEvent[] }
-        if (!cancelled) setEvents(json.events || [])
+        const json = await response.json() as { tasks?: LoopTaskHandoff[]; events?: TaskEvent[] }
+        if (!cancelled) {
+          setEvents(json.events || [])
+          const row = json.tasks && json.tasks[0]
+          if (row) {
+            setLive(row)
+            if (interval && TERMINAL.includes(row.status)) { clearInterval(interval); interval = null }
+          }
+        }
       } catch {
-        /* keep last known events */
+        /* keep last known */
       } finally {
         if (!cancelled) setLoadingEvents(false)
       }
@@ -191,7 +206,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
     void poll()
     // Live progress: keep polling while the task is still moving.
     const active = ['queued', 'delivered', 'accepted', 'running', 'needs_review'].includes(task.status)
-    const interval = active ? setInterval(() => void poll(), 8_000) : null
+    interval = active ? setInterval(() => void poll(), 6_000) : null
     return () => { cancelled = true; if (interval) clearInterval(interval) }
   }, [task.task_id, task.status])
 
@@ -231,7 +246,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
         <div className="drawer-header">
           <div>
             <p className="section-kicker">Task detail</p>
-            <h3>{statusCopy(task.status)} · {task.kind}</h3>
+            <h3>{statusCopy(live.status)} · {live.kind}</h3>
           </div>
           <button type="button" className="drawer-close" onClick={onClose}>Close</button>
         </div>
@@ -240,7 +255,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
           <div><small>Priority</small><strong>{task.priority}</strong></div>
           <div><small>Destination</small><strong>{task.resolved_destination}</strong></div>
           <div><small>Created</small><strong>{timeAgo(task.created_at)}</strong></div>
-          <div><small>Updated</small><strong>{timeAgo(task.updated_at)}</strong></div>
+          <div><small>Updated</small><strong>{timeAgo(live.updated_at)}</strong></div>
         </div>
         <div className="drawer-actions">
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task_id)}>Copy task id</button>
@@ -273,16 +288,16 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
             </ol>
           )}
         </div>
-        {task.result_summary && (
+        {live.result_summary && (
           <div className="drawer-result-summary">
             <p className="section-kicker">Result</p>
-            <pre>{task.result_summary}</pre>
+            <pre>{live.result_summary}</pre>
           </div>
         )}
         <div className="drawer-result">
           <p className="section-kicker">Latest message</p>
-          <p>{task.delivery_message || task.error || 'No result yet.'}</p>
-          <code>{task.task_id}</code>
+          <p>{live.error || (events.length ? events[events.length - 1].message : live.delivery_message) || 'No result yet.'}</p>
+          <code>{live.task_id}</code>
         </div>
       </aside>
     </div>
