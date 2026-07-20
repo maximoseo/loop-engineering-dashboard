@@ -6,6 +6,21 @@ const MODELS = ['Auto', 'Claude Opus', 'Claude Sonnet', 'GPT-5', 'Gemini', 'Mini
 const EFFORTS = ['low', 'medium', 'high', 'max']
 const PRIORITIES = ['normal', 'high', 'urgent']
 
+const TEMPLATES: Array<{ label: string; text: string }> = [
+  { label: 'SEO audit', text: 'Audit https://example.com for SEO and UX and list the top fixes.' },
+  { label: 'Security scan', text: 'Review https://example.com for security and privacy issues.' },
+  { label: 'Performance', text: 'Analyse https://example.com performance and Core Web Vitals; list the biggest wins.' },
+  { label: 'Competitor', text: 'Compare https://example.com against a leading competitor on SEO and UX.' },
+]
+
+function downloadText(name: string, text: string) {
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = name; a.click()
+  URL.revokeObjectURL(url)
+}
+
 const TERMINAL = new Set(['done', 'failed', 'blocked_config', 'archived', 'needs_review'])
 const ACTIVE = new Set(['queued', 'delivered', 'accepted', 'running', 'needs_review'])
 
@@ -140,6 +155,12 @@ export function QuickLaunch() {
           placeholder="e.g. Audit the homepage for Core Web Vitals and propose concrete fixes…"
           rows={3}
         />
+        <div className="quicklaunch-chips" aria-label="Task templates">
+          <span>Templates:</span>
+          {TEMPLATES.map((t) => (
+            <button key={t.label} type="button" className="ql-chip" onClick={() => setTask(t.text)}>{t.label}</button>
+          ))}
+        </div>
         <div className="quicklaunch-controls">
           <label>Bot<select value={bot} onChange={(e) => setBot(e.target.value)}>{BOTS.map((x) => <option key={x}>{x}</option>)}</select></label>
           <label>Model<select value={model} onChange={(e) => setModel(e.target.value)}>{MODELS.map((x) => <option key={x}>{x}</option>)}</select></label>
@@ -188,7 +209,13 @@ export function QuickLaunch() {
           )}
           {resultSummary && (
             <div className="drawer-result-summary">
-              <p className="section-kicker">Result</p>
+              <div className="result-head">
+                <p className="section-kicker">Result</p>
+                <div className="result-actions">
+                  <button type="button" onClick={() => void navigator.clipboard?.writeText(resultSummary)}>Copy</button>
+                  <button type="button" onClick={() => downloadText(`result-${result?.taskId || 'task'}.md`, resultSummary)}>Download</button>
+                </div>
+              </div>
               <pre>{resultSummary}</pre>
             </div>
           )}

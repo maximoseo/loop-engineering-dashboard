@@ -259,9 +259,15 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
           <div><small>Updated</small><strong>{timeAgo(live.updated_at)}</strong></div>
         </div>
         <div className="drawer-actions">
+          <button type="button" onClick={() => {
+            const m = (live.metadata as Record<string, unknown>) || {}
+            void fetch('/api/loop-task', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ task: live.task, kind: live.kind, priority: live.priority, bot: m.bot, model: m.model, effort: m.effort, contextUrl: m.contextUrl }),
+            }).then(() => onClose())
+          }}>Re-run</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task_id)}>Copy task id</button>
           <button type="button" onClick={() => void navigator.clipboard?.writeText(task.task)}>Copy prompt</button>
-          <button type="button" onClick={() => void navigator.clipboard?.writeText(`Verify task ${task.task_id} and update the Loop Engineering queue.`)}>Copy verify command</button>
         </div>
         <div className="drawer-timeline">
           <p className="section-kicker">Progress timeline {loadingEvents && <span className="drawer-live-dot" aria-hidden="true" />}</p>
@@ -291,7 +297,17 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
         </div>
         {live.result_summary && (
           <div className="drawer-result-summary">
-            <p className="section-kicker">Result</p>
+            <div className="result-head">
+              <p className="section-kicker">Result</p>
+              <div className="result-actions">
+                <button type="button" onClick={() => void navigator.clipboard?.writeText(live.result_summary || '')}>Copy</button>
+                <button type="button" onClick={() => {
+                  const blob = new Blob([live.result_summary || ''], { type: 'text/markdown;charset=utf-8' })
+                  const url = URL.createObjectURL(blob); const a = document.createElement('a')
+                  a.href = url; a.download = `result-${live.task_id}.md`; a.click(); URL.revokeObjectURL(url)
+                }}>Download</button>
+              </div>
+            </div>
             <pre>{live.result_summary}</pre>
           </div>
         )}

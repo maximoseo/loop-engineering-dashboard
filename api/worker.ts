@@ -43,7 +43,7 @@ const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || ''
 // Map the dashboard's model labels to OpenRouter model ids (default is a cheap,
 // reliable model; unknown labels fall back to it).
 const MODEL_MAP: Record<string, string> = { 'DeepSeek V4': 'deepseek/deepseek-chat' }
-function llmModel(name: string) { return MODEL_MAP[name] || 'openai/gpt-4o-mini' }
+export function llmModel(name: string) { return MODEL_MAP[name] || 'openai/gpt-4o-mini' }
 
 // Run a non-URL task through an LLM so it produces a real answer instead of
 // sitting in needs_review. Effort controls the length budget.
@@ -136,7 +136,7 @@ async function patchTask(task_id: string, guardStatus: string, patch: Record<str
   return rows[0] || null
 }
 
-function firstUrl(task: StoredTask): string | null {
+export function firstUrl(task: StoredTask): string | null {
   const meta = task.metadata || {}
   const ctx = typeof meta.contextUrl === 'string' ? meta.contextUrl.trim() : ''
   if (/^https?:\/\//i.test(ctx)) return ctx
@@ -175,7 +175,7 @@ async function firecrawl(url: string): Promise<Scrape> {
 }
 
 // Deterministic SEO/UX heuristics over the fetched HTML — no LLM required.
-function auditSite(url: string, s: Scrape, effort: string): string {
+export function auditSite(url: string, s: Scrape, effort: string): string {
   const html = s.html
   const lower = html.toLowerCase()
   const count = (re: RegExp) => (html.match(re) || []).length

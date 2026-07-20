@@ -179,6 +179,7 @@ export interface LoopTaskHandoff {
   claimed_at: string | null
   completed_at: string | null
   error: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface LoopTaskEvent {

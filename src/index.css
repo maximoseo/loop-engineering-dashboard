@@ -2160,3 +2160,41 @@ html {
 .toast span { color: var(--text); font-size: 0.8rem; line-height: 1.35; }
 .toast small { color: var(--accent-bright); font-size: 0.72rem; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* QuickLaunch templates + result actions (Wave B) */
+.quicklaunch-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 2px;
+}
+.quicklaunch-chips > span { font-size: 0.72rem; color: var(--text-dim); }
+.ql-chip {
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  border: 1px solid var(--border);
+  background: rgba(139, 92, 246, 0.08);
+  color: var(--accent-bright);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ql-chip:hover { background: rgba(139, 92, 246, 0.18); border-color: var(--accent); }
+.result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.result-actions { display: flex; gap: 6px; }
+.result-actions button {
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+.result-actions button:hover { border-color: var(--accent); color: var(--accent-bright); }
