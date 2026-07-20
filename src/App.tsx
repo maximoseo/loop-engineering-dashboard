@@ -19,7 +19,8 @@ const queryClient = new QueryClient({
 })
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, initializing } = useAuth()
+  if (initializing) return <PageLoader />
   if (!user) return <Navigate to="/login" replace />
   return <>{children}</>
 }

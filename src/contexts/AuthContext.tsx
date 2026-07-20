@@ -1,46 +1,84 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from 'react'
+import type { Session } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase.ts'
 
-interface AuthState {
+interface AuthContextValue {
   user: { email: string } | null
-  loading: boolean
-}
-
-interface AuthContextValue extends AuthState {
-  login: (email: string, _password: string) => Promise<void>
-  signup: (email: string, _password: string) => Promise<void>
-  logout: () => void
+  session: Session | null
+  loading: boolean // login/signup action in flight
+  initializing: boolean // first getSession() pending — gate redirects on this
+  login: (email: string, password: string) => Promise<void>
+  signup: (email: string, password: string) => Promise<void>
+  logout: () => Promise<void>
+  getAccessToken: () => string | null
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<{ email: string } | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+  const [initializing, setInitializing] = useState(true)
   const [loading, setLoading] = useState(false)
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const login = useCallback(async (email: string, _password: string) => {
-    setLoading(true)
-    // TODO: replace with real auth
-    await new Promise((r) => setTimeout(r, 600))
-    setUser({ email })
-    setLoading(false)
+  useEffect(() => {
+    let active = true
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!active) return
+        setSession(data.session)
+      })
+      .finally(() => {
+        if (active) setInitializing(false)
+      })
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next)
+    })
+    return () => {
+      active = false
+      sub.subscription.unsubscribe()
+    }
   }, [])
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const signup = useCallback(async (email: string, _password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     setLoading(true)
-    // TODO: replace with real auth
-    await new Promise((r) => setTimeout(r, 600))
-    setUser({ email })
-    setLoading(false)
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw new Error(error.message)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  const logout = useCallback(() => {
-    setUser(null)
+  const signup = useCallback(async (email: string, password: string) => {
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.signUp({ email, password })
+      if (error) throw new Error(error.message)
+    } finally {
+      setLoading(false)
+    }
   }, [])
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut()
+  }, [])
+
+  const getAccessToken = useCallback(() => session?.access_token ?? null, [session])
+
+  const user = session?.user?.email ? { email: session.user.email } : null
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
+    <AuthContext.Provider
+      value={{ user, session, loading, initializing, login, signup, logout, getAccessToken }}
+    >
       {children}
     </AuthContext.Provider>
   )
