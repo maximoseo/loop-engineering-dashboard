@@ -153,6 +153,7 @@ export function QuickLaunch() {
           value={task}
           onChange={(e) => setTask(e.target.value)}
           placeholder="e.g. Audit the homepage for Core Web Vitals and propose concrete fixes…"
+          aria-label="Task description"
           rows={3}
         />
         <div className="quicklaunch-chips" aria-label="Task templates">
