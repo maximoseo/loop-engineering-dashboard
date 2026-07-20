@@ -1,0 +1,70 @@
+name: AI Code Review
+
+# Runs the full reviewer panel on every pull request into main. Each reviewer is
+# best-effort — a missing key or tool is skipped, never fails the build — so one
+# broken reviewer never blocks a PR. Add these repo secrets to enable them:
+#   BITO_API_KEY, CODERABBIT_API_KEY, RAFTER_API_KEY, QODO_API_KEY
+# (CodeAnt additionally needs a one-time `codeant login`; Greptile needs its
+#  GitHub app installed on the repo.)
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install reviewer CLIs (best-effort)
+        run: |
+          curl -fsSL https://cli.coderabbit.ai/install.sh | sh || echo "coderabbit install skipped"
+          pip install --quiet gitbito || echo "bito install skipped"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run all reviewers over the PR diff
+        env:
+          BITO_API_KEY: ${{ secrets.BITO_API_KEY }}
+          CODERABBIT_API_KEY: ${{ secrets.CODERABBIT_API_KEY }}
+          RAFTER_API_KEY: ${{ secrets.RAFTER_API_KEY }}
+          QODO_API_KEY: ${{ secrets.QODO_API_KEY }}
+        run: |
+          chmod +x scripts/review-all.sh
+          bash scripts/review-all.sh --base "origin/${{ github.base_ref }}" | tee review-report.txt
+
+      - name: Publish the review as an artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-code-review
+          path: review-report.txt
+
+      - name: Comment the review on the PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '### 🤖 AI Code Review\n\n';
+            try { body += '```\n' + fs.readFileSync('review-report.txt','utf8').slice(0, 60000) + '\n```'; }
+            catch { body += '_No review output produced._'; }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body,
+            });

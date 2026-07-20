@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Auto secret-scan before every push (fast, local). The full multi-reviewer pass
+# (Bito, CodeRabbit, CodeAnt, Rafter, Qodo) runs in CI on each PR — see
+# .github/workflows/code-review.yml — and can be run manually with
+# `scripts/review-all.sh`. This hook is advisory: it never blocks a push, it just
+# surfaces hardcoded-secret candidates so a real key never leaves the machine.
+set -uo pipefail
+command -v npx >/dev/null 2>&1 || exit 0
+KEY="${RAFTER_API_KEY:-$(python3 -c "import json,os;p=os.path.expanduser('~/.config/rafter/config.json');print(json.load(open(p)).get('api_key','') if os.path.exists(p) else '')" 2>/dev/null)}"
+echo "[pre-push] scanning for hardcoded secrets (Rafter)…"
+RAFTER_API_KEY="$KEY" timeout 120 npx -y @rafter-security/cli -a secrets . 2>/dev/null \
+  | grep -iE 'CRITICAL|HIGH|Found secrets|Total' \
+  || echo "[pre-push] no secrets flagged."
+echo "[pre-push] advisory only — verify flagged lines (npm integrity hashes / docs are false positives). Push continues."
+exit 0
