@@ -56,17 +56,22 @@ export function QuickLaunch() {
   const startPolling = (taskId: string) => {
     stopPolling()
     let tries = 0
+    let inFlight = false
     const tick = async () => {
+      if (inFlight) return // don't overlap if a poll is slower than the interval
+      inFlight = true
       tries += 1
       try {
         const res = await fetch(`/api/loop-task?taskId=${encodeURIComponent(taskId)}`)
-        const json = await res.json() as { tasks?: Array<{ status?: string; result_summary?: string }>; events?: TaskEvent[] }
-        const t = json.tasks?.[0]
-        setEvents(json.events || [])
-        if (t?.status) setLiveStatus(t.status)
-        if (t?.result_summary) setResultSummary(t.result_summary)
-        if (t?.status && (TERMINAL.has(t.status) || !ACTIVE.has(t.status))) stopPolling()
-      } catch { /* keep last known */ }
+        if (res.ok) {
+          const json = await res.json() as { tasks?: Array<{ status?: string; result_summary?: string }>; events?: TaskEvent[] }
+          const t = json.tasks?.[0]
+          setEvents(json.events || [])
+          if (t?.status) setLiveStatus(t.status)
+          if (t?.result_summary) setResultSummary(t.result_summary)
+          if (t?.status && (TERMINAL.has(t.status) || !ACTIVE.has(t.status))) stopPolling()
+        }
+      } catch { /* keep last known */ } finally { inFlight = false }
       if (tries >= 120) stopPolling() // ~3 min safety cap
     }
     void tick()

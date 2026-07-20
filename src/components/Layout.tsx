@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase.ts'
 function DoneToaster() {
   const [toasts, setToasts] = useState<Array<{ id: string; task: string }>>([])
   useEffect(() => {
+    const timers: Array<ReturnType<typeof setTimeout>> = []
     const channel = supabase
       .channel('done-toaster')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'loop_task_handoffs' }, (payload) => {
@@ -18,11 +19,11 @@ function DoneToaster() {
         if (row?.status === 'done' && row.task_id) {
           const id = row.task_id
           setToasts((t) => (t.some((x) => x.id === id) ? t : [...t, { id, task: row.task || 'Task' }]))
-          setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 9000)
+          timers.push(setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 9000))
         }
       })
       .subscribe()
-    return () => { void supabase.removeChannel(channel) }
+    return () => { timers.forEach(clearTimeout); void supabase.removeChannel(channel) }
   }, [])
   if (!toasts.length) return null
   return (

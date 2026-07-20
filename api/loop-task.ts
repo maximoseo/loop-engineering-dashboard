@@ -37,6 +37,10 @@ const rlBuckets = new Map<string, { count: number; resetAt: number }>()
 
 function rateLimit(identifier: string): { allowed: boolean; remaining: number; resetIn: number } {
   const now = Date.now()
+  // Evict expired buckets so a flood of unique clients can't grow the map without bound.
+  if (rlBuckets.size > 5000) {
+    for (const [key, bucket] of rlBuckets) if (now > bucket.resetAt) rlBuckets.delete(key)
+  }
   const existing = rlBuckets.get(identifier)
   if (!existing || now > existing.resetAt) {
     rlBuckets.set(identifier, { count: 1, resetAt: now + RL_WINDOW_MS })
@@ -314,7 +318,9 @@ async function kickWorker(req: VercelRequest) {
     // Short hand-off: the request reaches a separate /api/worker invocation that
     // runs to completion on its own; we only wait long enough to send it so the
     // POST response (and the dashboard's "delivered" state) is not held up.
-    await fetch(`${proto}://${host}/api/worker?secret=${encodeURIComponent(secret)}`, {
+    // Secret goes in a header, not the URL, to keep it out of access logs.
+    await fetch(`${proto}://${host}/api/worker`, {
+      headers: { 'x-worker-secret': secret },
       signal: AbortSignal.timeout(800),
     })
   } catch { /* handed off (or cron will pick it up) */ }
