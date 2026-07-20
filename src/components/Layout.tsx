@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
 import type { JSX } from 'react'
 import { useDashboard } from '../contexts/DashboardContext.tsx'
+import { useAuth } from '../contexts/AuthContext.tsx'
 
 type NavItem = { to: string; label: string; icon: string; group: 'Command' | 'Review' | 'History' }
 
@@ -48,6 +49,7 @@ const formatElapsed = (s: number) => {
 export default function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { live, lastUpdated, elapsed, refreshing, load, state } = useDashboard()
+  const { user, logout } = useAuth()
   const running = live && state.is_loop_running
 
   const sidebarContent = (
@@ -97,6 +99,12 @@ export default function Layout() {
             {refreshing ? 'Syncing' : 'Refresh'}
           </button>
         </div>
+        {user && (
+          <div className="status-meta" style={{ marginTop: '0.45rem' }}>
+            <span className="truncate" title={user.email}>{user.email}</span>
+            <button type="button" onClick={() => void logout()}>Sign out</button>
+          </div>
+        )}
       </div>
     </>
   )
@@ -108,6 +116,7 @@ export default function Layout() {
         onClick={() => setMobileOpen(true)}
         className="lg:hidden fixed top-3 left-3 z-40 w-10 h-10 rounded-lg glass flex items-center justify-center text-[var(--text)]"
         aria-label="Open navigation"
+        aria-expanded={mobileOpen}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
