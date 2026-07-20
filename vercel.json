@@ -8,6 +8,9 @@
   "crons": [
     { "path": "/api/worker", "schedule": "* * * * *" }
   ],
+  "functions": {
+    "api/worker.ts": { "maxDuration": 60 }
+  },
   "headers": [
     {
       "source": "/(.*)",

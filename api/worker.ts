@@ -47,19 +47,19 @@ function llmModel(name: string) { return MODEL_MAP[name] || 'openai/gpt-4o-mini'
 
 // Run a non-URL task through an LLM so it produces a real answer instead of
 // sitting in needs_review. Effort controls the length budget.
-async function llmAnswer(task: string, modelName: string, effort: string): Promise<string> {
-  const max = effort === 'high' || effort === 'max' ? 1200 : effort === 'low' ? 350 : 700
+async function llmChat(system: string, user: string, modelName: string, maxTokens: number): Promise<string> {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: { authorization: `Bearer ${OPENROUTER_API_KEY}`, 'content-type': 'application/json' },
     body: JSON.stringify({
       model: llmModel(modelName),
-      max_tokens: max,
+      max_tokens: maxTokens,
       messages: [
-        { role: 'system', content: 'You are a Loop Engineering worker. Complete the user task concisely and concretely with actionable output. Plain text, short paragraphs or numbered points, no markdown headers.' },
-        { role: 'user', content: task },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
     }),
+    signal: AbortSignal.timeout(25000), // never hang the worker on a slow model
   })
   if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 140)}`)
   const j = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
@@ -68,12 +68,37 @@ async function llmAnswer(task: string, modelName: string, effort: string): Promi
   return out
 }
 
+// Run a non-URL task through an LLM so it produces a real answer instead of
+// sitting in needs_review. Effort controls the length budget.
+async function llmAnswer(task: string, modelName: string, effort: string): Promise<string> {
+  const max = effort === 'high' || effort === 'max' ? 1200 : effort === 'low' ? 350 : 700
+  return llmChat('You are a Loop Engineering worker. Complete the user task concisely and concretely with actionable output. Plain text, short paragraphs or numbered points, no markdown headers.', task, modelName, max)
+}
+
+// Each bot reviews the same page through a different lens.
+const BOT_LENS: Record<string, string> = {
+  'Security Guard': 'Focus on security and privacy: exposed data, mixed content, unsafe or excessive third-party scripts, missing security headers.',
+  'QA Verifier': 'Focus on functional and UX quality: broken layout, accessibility, forms, navigation, and mobile behaviour.',
+  'Frontend Builder': 'Focus on front-end performance and UX: bundle weight, render-blocking resources, layout shift, and polish.',
+  'SEO Researcher': 'Focus on SEO: crawlability, metadata, headings, content depth, structured data, and Core Web Vitals.',
+}
+function botLens(bot: string) { return BOT_LENS[bot] || BOT_LENS['SEO Researcher'] }
+
+// Turn the deterministic signals + rule findings into prioritised, explained
+// fixes through the chosen bot's lens. Best-effort layer on top of the rules.
+async function llmInterpret(url: string, deterministic: string, bot: string, modelName: string, effort: string): Promise<string> {
+  const max = effort === 'high' || effort === 'max' ? 1100 : effort === 'low' ? 350 : 650
+  const sys = `You are a ${bot || 'SEO Researcher'} reviewing a web page. ${botLens(bot)} Given the machine-collected signals and rule-based findings, return the top prioritised fixes as a numbered list — each with what to change, why it matters, and the expected impact. Be specific and concrete. Plain text, no markdown headers.`
+  return llmChat(sys, `URL: ${url}\n\nSignals & rule-based findings:\n${deterministic}`, modelName, max)
+}
+
 const CLAIMABLE = ['queued', 'delivered']
 
 interface StoredTask {
   task_id: string
   task: string
   status: string
+  priority?: string
   metadata?: Record<string, unknown> | null
 }
 
@@ -219,8 +244,12 @@ function auditSite(url: string, s: Scrape, effort: string): string {
 }
 
 async function claimOldest(): Promise<StoredTask | null> {
-  const res = await sb(`loop_task_handoffs?select=*&status=in.(${CLAIMABLE.join(',')})&order=created_at.asc&limit=5`)
+  const res = await sb(`loop_task_handoffs?select=*&status=in.(${CLAIMABLE.join(',')})&order=created_at.asc&limit=15`)
   const rows = (await res.json()) as StoredTask[]
+  // Priority ordering: urgent → high → normal, keeping FIFO within a priority
+  // (Array.sort is stable, so the created_at.asc order is preserved per bucket).
+  const rank: Record<string, number> = { urgent: 0, high: 1, normal: 2 }
+  rows.sort((a, b) => (rank[a.priority ?? 'normal'] ?? 3) - (rank[b.priority ?? 'normal'] ?? 3))
   for (const row of rows) {
     // Atomic claim: only one worker wins the guarded PATCH.
     const claimed = await patchTask(row.task_id, row.status, { status: 'accepted', claimed_at: new Date().toISOString() })
@@ -236,17 +265,24 @@ function metaStr(task: StoredTask, key: string): string {
 
 // Reaper: a task claimed but never finished (worker crashed / timed out mid-run)
 // stays stuck in accepted/running forever. Re-queue anything claimed > 3 min ago.
-async function requeueStale(): Promise<number> {
+async function requeueStale(): Promise<{ requeued: number; deadLettered: number }> {
   const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString()
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?status=in.(accepted,running)&claimed_at=lt.${encodeURIComponent(cutoff)}`, {
-    method: 'PATCH',
-    headers: headers('return=representation'),
-    body: JSON.stringify({ status: 'delivered', updated_at: new Date().toISOString() }),
-  })
-  if (!res.ok) return 0
+  const res = await sb(`loop_task_handoffs?select=*&status=in.(accepted,running)&claimed_at=lt.${encodeURIComponent(cutoff)}&limit=20`)
   const rows = (await res.json()) as StoredTask[]
-  for (const r of rows) await event(r.task_id, 'requeued', 'Task was stuck in progress and has been re-queued for another attempt.', {})
-  return rows.length
+  let requeued = 0, deadLettered = 0
+  for (const r of rows) {
+    const meta = (r.metadata as Record<string, unknown>) || {}
+    const attempts = (typeof meta.requeues === 'number' ? meta.requeues : 0) + 1
+    if (attempts > 3) {
+      // Dead-letter: stop retrying and surface for a human instead of looping.
+      const ok = await patchTask(r.task_id, r.status, { status: 'needs_review', error: 'Repeatedly stalled — dead-lettered after 3 retries.', metadata: { ...meta, requeues: attempts } })
+      if (ok) { deadLettered++; await event(r.task_id, 'needs_review', 'Task stalled 3+ times and was moved to needs-review (dead-letter).', {}); await telegram(`⛔ Dead-letter — task stalled repeatedly:\n${shorten(r.task)}`) }
+    } else {
+      const ok = await patchTask(r.task_id, r.status, { status: 'delivered', metadata: { ...meta, requeues: attempts } })
+      if (ok) { requeued++; await event(r.task_id, 'requeued', `Task was stuck in progress and has been re-queued (attempt ${attempts}).`, {}) }
+    }
+  }
+  return { requeued, deadLettered }
 }
 
 // Process a single already-claimed task end to end.
@@ -296,6 +332,15 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
   try {
     const scrape = await firecrawl(url)
     summary = auditSite(url, scrape, effort)
+    // Layer an LLM interpretation through the chosen bot's lens on top of the
+    // deterministic findings (best-effort — deterministic result stays if it fails).
+    if (OPENROUTER_API_KEY) {
+      try {
+        const bot = metaStr(task, 'bot')
+        const interpreted = await llmInterpret(url, summary, bot, metaStr(task, 'model'), effort)
+        summary += `\n\n— ${bot || 'Reviewer'} analysis —\n${interpreted}`
+      } catch { /* keep deterministic-only */ }
+    }
     if (ranAs) summary += `\n\nRan as: ${ranAs}.`
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -328,7 +373,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const requeued = await requeueStale()
+    const { requeued, deadLettered } = await requeueStale()
     // Batch: drain up to 3 tasks per invocation so a backlog clears faster than
     // one-per-minute. Each is claimed atomically and processed end to end.
     const BATCH = 3
@@ -338,7 +383,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!task) break
       processed.push(await processOne(task))
     }
-    res.status(200).json({ ok: true, requeued, count: processed.length, processed })
+    res.status(200).json({ ok: true, requeued, deadLettered, count: processed.length, processed })
   } catch (error) {
     res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })
   }
