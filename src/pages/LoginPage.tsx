@@ -21,54 +21,70 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text)] flex items-center justify-center">
-      <form onSubmit={handleSubmit} className="glass rounded-xl p-8 w-full max-w-sm space-y-5">
-        <h1 className="text-2xl font-semibold text-center">Sign in</h1>
-        <p className="text-sm text-[var(--text-secondary)] text-center">Loop Engineering Dashboard</p>
-        {error && (
-          <p
-            role="alert"
-            className="text-sm text-[var(--error)] bg-[color:rgba(248,113,113,0.1)] border border-[color:rgba(248,113,113,0.35)] rounded-lg px-3 py-2"
-          >
-            {error}
-          </p>
-        )}
-        <label className="block space-y-1.5">
-          <span className="text-xs text-[var(--text-secondary)]">Email</span>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            className="w-full rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-3 py-2 text-sm"
-          />
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-xs text-[var(--text-secondary)]">Password</span>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-            className="w-full rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-3 py-2 text-sm"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-[var(--accent)] text-white py-2 text-sm font-medium disabled:opacity-50"
-        >
-          {loading ? 'Signing in…' : 'Sign in'}
-        </button>
-        <p className="text-xs text-[var(--text-secondary)] text-center">
-          No account?{' '}
-          <Link to="/signup" className="text-[var(--accent-bright)] underline">
-            Sign up
-          </Link>
+    <div className="login-screen">
+      <div className="login-orb login-orb-a" aria-hidden="true" />
+      <div className="login-orb login-orb-b" aria-hidden="true" />
+
+      <div className="login-card">
+        <div className="login-brand">
+          <span className="login-mark" aria-hidden="true">
+            <span />
+          </span>
+          <div>
+            <p className="login-eyebrow">Maximo SEO</p>
+            <h1>Loop Engineering</h1>
+          </div>
+        </div>
+        <p className="login-tagline">
+          Sign in to the self-improving agent control room — observe, score, learn, propose, test, activate.
         </p>
-      </form>
+
+        <form onSubmit={handleSubmit} className="login-form">
+          {error && (
+            <p role="alert" className="login-error">
+              {error}
+            </p>
+          )}
+
+          <label className="login-field">
+            <span>Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              placeholder="you@maximo-seo.com"
+            />
+          </label>
+
+          <label className="login-field">
+            <span>Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              placeholder="••••••••"
+            />
+          </label>
+
+          <button type="submit" disabled={loading} className="login-submit">
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+
+          <p className="login-alt">
+            No account? <Link to="/signup">Sign up</Link>
+          </p>
+        </form>
+
+        <div className="login-badges" aria-hidden="true">
+          <span>● Live Supabase</span>
+          <span>Realtime</span>
+          <span>Read-only surface</span>
+        </div>
+      </div>
     </div>
   )
 }
