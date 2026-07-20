@@ -63,6 +63,11 @@ export default function App() {
                 <Route path="activations" element={<ActivationsPage />} />
                 <Route path="cost" element={<CostPage />} />
               </Route>
+
+              {/* Any unknown path funnels through the root, which redirects to
+                  /login when there is no session — so nothing but the login
+                  page is ever reachable while logged out. */}
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </BrowserRouter>
