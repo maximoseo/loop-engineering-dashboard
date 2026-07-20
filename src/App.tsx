@@ -13,6 +13,8 @@ const OrchestratorPage = lazy(() => import('./pages/OrchestratorPage.tsx'))
 const ProposalsPage = lazy(() => import('./pages/ProposalsPage.tsx'))
 const FailuresPage = lazy(() => import('./pages/FailuresPage.tsx'))
 const EvalsPage = lazy(() => import('./pages/EvalsPage.tsx'))
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.tsx'))
+const LessonsPage = lazy(() => import('./pages/LessonsPage.tsx'))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 15_000 } },
@@ -58,6 +60,8 @@ export default function App() {
                 <Route path="proposals" element={<ProposalsPage />} />
                 <Route path="failures" element={<FailuresPage />} />
                 <Route path="evals" element={<EvalsPage />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
+                <Route path="lessons" element={<LessonsPage />} />
               </Route>
             </Routes>
           </Suspense>

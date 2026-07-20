@@ -12,6 +12,8 @@ const navItems: NavItem[] = [
   { to: '/orchestrator', label: 'Orchestrator', icon: 'network', group: 'Command' },
   { to: '/proposals', label: 'Proposals', icon: 'sparkles', group: 'Review' },
   { to: '/evals', label: 'Evals', icon: 'check', group: 'Review' },
+  { to: '/analytics', label: 'Analytics', icon: 'activity', group: 'Review' },
+  { to: '/lessons', label: 'Lessons', icon: 'list', group: 'Review' },
   { to: '/failures', label: 'Failures', icon: 'alert', group: 'History' },
 ]
 
