@@ -2212,3 +2212,16 @@ html {
 }
 .queue-search::placeholder { color: var(--text-dim); }
 .queue-search:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+
+/* Mobile responsive pass for the new surfaces (Wave: mobile) */
+@media (max-width: 640px) {
+  .quicklaunch-controls { grid-template-columns: 1fr 1fr; }
+  .quicklaunch-controls .primary-action { grid-column: 1 / -1; }
+  .quicklaunch-chips { gap: 6px; }
+  .queue-controls { flex-direction: column; align-items: stretch; }
+  .queue-search { min-width: 0; width: 100%; }
+  .task-detail-drawer { width: 100%; max-width: 100%; }
+  .drawer-meta-grid { grid-template-columns: 1fr 1fr; }
+  .result-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .toast-stack { left: 12px; right: 12px; max-width: none; }
+}
