@@ -12,6 +12,9 @@ test('unauthenticated visitors get a working sign-in gate', async ({ page }) => 
 
   await page.goto('/', { waitUntil: 'networkidle' })
 
+  // Wait for React to mount and render the login page
+  await page.waitForSelector('#root > *', { timeout: 15000 })
+
   await expect(page).toHaveTitle(/Loop Engineering Dashboard/i)
   await expect(page.getByRole('heading', { name: /Loop Engineering/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Sign in/i })).toBeVisible()
