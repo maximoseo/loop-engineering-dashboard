@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext.tsx'
 
 const BOTS = ['Auto', 'Planner', 'Backend Builder', 'Frontend Builder', 'QA Verifier', 'Security Guard', 'SEO Researcher', 'Orchestrator']
 const MODELS = ['Auto', 'Claude Opus', 'Claude Sonnet', 'GPT-5', 'Gemini', 'MiniMax M3', 'Kimi K2', 'GLM 5', 'DeepSeek V4']
@@ -51,6 +52,7 @@ interface TaskEvent {
 }
 
 export function QuickLaunch() {
+  const { getAccessToken } = useAuth()
   const [task, setTask] = useState('')
   const [bot, setBot] = useState('Auto')
   const [model, setModel] = useState('Auto')
@@ -110,9 +112,10 @@ export function QuickLaunch() {
     setResultSummary(null)
     stopPolling()
     try {
+      const token = getAccessToken()
       const res = await fetch('/api/loop-task', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ task: task.trim(), kind: 'dashboard', priority, bot, model, effort }),
       })
       const payload = await res.json()

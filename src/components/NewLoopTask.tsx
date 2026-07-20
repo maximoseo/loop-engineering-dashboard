@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LoopTaskDestination, LoopTaskHandoff, LoopTaskKind, LoopTaskPriority, LoopTaskProcessStep, LoopTaskStatus } from '../types.ts'
 import { fetchTaskQueue } from '../data/taskQueue.ts'
 import { supabase } from '../lib/supabase.ts'
+import { useAuth } from '../contexts/AuthContext.tsx'
 
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
 type SubmitStatus = 'delivered' | 'blocked_config' | 'failed' | 'queued'
@@ -171,6 +172,7 @@ interface TaskEvent {
 }
 
 function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: () => void }) {
+  const { getAccessToken } = useAuth()
   const drawerRef = useRef<HTMLElement>(null)
   const [events, setEvents] = useState<TaskEvent[]>([])
   const [loadingEvents, setLoadingEvents] = useState(true)
@@ -266,8 +268,9 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
         <div className="drawer-actions">
           <button type="button" onClick={() => {
             const m = (live.metadata as Record<string, unknown>) || {}
+            const token = getAccessToken()
             void fetch('/api/loop-task', {
-              method: 'POST', headers: { 'content-type': 'application/json' },
+              method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
               body: JSON.stringify({ task: live.task, kind: live.kind, priority: live.priority, bot: m.bot, model: m.model, effort: m.effort, contextUrl: m.contextUrl }),
             }).then(() => onClose()).catch(() => onClose())
           }}>Re-run</button>
@@ -327,6 +330,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
 }
 
 export function NewLoopTask() {
+  const { getAccessToken } = useAuth()
   const [task, setTask] = useState('')
   const [expectedResult, setExpectedResult] = useState('')
   const [contextUrl, setContextUrl] = useState('')
@@ -440,9 +444,10 @@ export function NewLoopTask() {
     ])
 
     try {
+      const token = getAccessToken()
       const response = await fetch('/api/loop-task', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ task: trimmed, kind, priority, destination, expectedResult: expectedResult.trim(), contextUrl: contextUrl.trim() }),
       })
       const json = (await response.json()) as SubmitResponse

@@ -326,6 +326,27 @@ async function kickWorker(req: VercelRequest) {
   } catch { /* handed off (or cron will pick it up) */ }
 }
 
+// Role gate: true if the caller may submit tasks. Fail-open — an empty/unset
+// LOOP_OPERATOR_EMAILS allowlist means everyone may submit. When set, the caller
+// must present a valid Supabase session whose email is on the list.
+async function operatorAllowed(req: VercelRequest): Promise<boolean> {
+  const allow = (process.env.LOOP_OPERATOR_EMAILS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  if (allow.length === 0) return true
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
+  const authHeader = Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : req.headers.authorization
+  const token = (authHeader || '').replace('Bearer ', '')
+  if (!token || !supabaseUrl) return false
+  try {
+    const r = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: process.env.VITE_SUPABASE_ANON_KEY || '', authorization: `Bearer ${token}` },
+    })
+    if (!r.ok) return false
+    const u = await r.json() as { email?: string }
+    return !!u.email && allow.includes(u.email.toLowerCase())
+  } catch { return false }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
 
@@ -360,6 +381,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method !== 'POST') {
     res.status(405).json({ ok: false, message: 'Use GET for status or POST to send a task.', deliveryReadiness: readiness })
+    return
+  }
+
+  // Role gate (fail-open): if LOOP_OPERATOR_EMAILS is set, only those signed-in
+  // users may submit tasks; if it is unset, everyone can (preserves existing behaviour).
+  if (!(await operatorAllowed(req))) {
+    res.status(403).json({ ok: false, message: 'You are not authorized to submit tasks (operator access required).' })
     return
   }
 
