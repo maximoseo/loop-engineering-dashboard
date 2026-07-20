@@ -16,6 +16,7 @@ export default defineConfig({
           if (id.includes('@supabase')) return 'vendor-supabase'
           if (id.includes('@sentry')) return 'vendor-sentry'
           if (id.includes('react-router')) return 'vendor-router'
+          if (id.includes('/react-dom/') || id.includes('/react/') || id.includes('/scheduler/')) return 'vendor-react'
         },
       },
     },
