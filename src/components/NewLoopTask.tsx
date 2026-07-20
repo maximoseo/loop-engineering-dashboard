@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LoopTaskDestination, LoopTaskHandoff, LoopTaskKind, LoopTaskPriority, LoopTaskProcessStep, LoopTaskStatus } from '../types.ts'
 import { fetchTaskQueue } from '../data/taskQueue.ts'
 
@@ -146,9 +146,40 @@ function toProcessSteps(steps: LoopTaskProcessStep[]): ProcessStep[] {
 }
 
 function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: () => void }) {
+  const drawerRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const prevFocus = document.activeElement as HTMLElement | null
+    drawerRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (event.key === 'Tab') {
+        const focusables = drawerRef.current?.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        )
+        if (!focusables || focusables.length === 0) return
+        const first = focusables[0]
+        const last = focusables[focusables.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      prevFocus?.focus?.()
+    }
+  }, [onClose])
   return (
     <div className="task-detail-backdrop" role="presentation" onClick={onClose}>
-      <aside className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="Task details" onClick={(event) => event.stopPropagation()}>
+      <aside ref={drawerRef} tabIndex={-1} className="task-detail-drawer" role="dialog" aria-modal="true" aria-label="Task details" onClick={(event) => event.stopPropagation()}>
         <div className="drawer-header">
           <div>
             <p className="section-kicker">Task detail</p>

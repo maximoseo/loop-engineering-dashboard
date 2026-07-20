@@ -9,7 +9,7 @@ interface AnalyticsPageProps {
   failures: FailurePattern[]
 }
 
-export function AnalyticsPage({ state, health, scores, failures }: AnalyticsPageProps) {
+export function AnalyticsPage({ state, scores, failures }: AnalyticsPageProps) {
   const latestBreakdown = useMemo((): Partial<Record<string, number>> => {
     if (scores.length === 0) return {}
     const s = scores[scores.length - 1]
