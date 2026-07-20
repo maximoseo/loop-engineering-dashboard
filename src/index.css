@@ -1990,3 +1990,34 @@ html {
 .login-badges span { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.03em; color: var(--text-muted); padding: 0.25rem 0.6rem; border-radius: 999px; border: 1px solid var(--border-subtle); background: rgba(20, 20, 43, 0.5); }
 .login-badges span:first-child { color: var(--success); }
 @media (prefers-reduced-motion: reduce) { .login-mark > span { animation: none; } }
+
+/* ── QuickLaunch (dashboard task launcher) ─────────────────────── */
+.quicklaunch { margin-bottom: 1rem; }
+.quicklaunch-head { margin-bottom: 0.9rem; }
+.quicklaunch-sub { font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; max-width: 60ch; }
+.quicklaunch-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.quicklaunch-textarea {
+  width: 100%; padding: 0.75rem 0.9rem; border-radius: 12px; resize: vertical; min-height: 74px;
+  background: rgba(6, 8, 20, 0.55); border: 1px solid var(--border-default);
+  color: var(--text); font-size: 0.9rem; font-family: var(--font-sans);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.quicklaunch-textarea::placeholder { color: var(--text-dim); }
+.quicklaunch-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.22); }
+.quicklaunch-controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: end; }
+.quicklaunch-controls label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.quicklaunch-controls select {
+  padding: 0.5rem 0.65rem; border-radius: 10px; min-width: 118px;
+  background: var(--bg-elevated); border: 1px solid var(--border-default);
+  color: var(--text); font-size: 0.82rem; cursor: pointer;
+}
+.quicklaunch-controls select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18); }
+.quicklaunch-controls .primary-action { margin-left: auto; min-height: 40px; }
+.quicklaunch-result { margin-top: 0.85rem; border-radius: 12px; padding: 0.7rem 0.9rem; font-size: 0.82rem; }
+.quicklaunch-result.ok { color: var(--success); background: rgba(34, 211, 238, 0.06); border: 1px solid rgba(34, 211, 238, 0.3); }
+.quicklaunch-result.err { color: #fecaca; background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.3); }
+.quicklaunch-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; justify-content: space-between; margin-top: 0.45rem; color: var(--text-secondary); font-size: 0.76rem; }
+.quicklaunch-meta code { color: var(--accent-bright); }
+.quicklaunch-meta a { color: var(--accent-bright); font-weight: 600; text-decoration: none; }
+.quicklaunch-meta a:hover { text-decoration: underline; }
+@media (max-width: 767px) { .quicklaunch-controls .primary-action { margin-left: 0; width: 100%; } }
