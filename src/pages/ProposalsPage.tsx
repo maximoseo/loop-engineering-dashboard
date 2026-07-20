@@ -1,8 +1,11 @@
 import { useDashboard } from '../contexts/DashboardContext.tsx'
 import { ImprovementFeed } from '../components/ImprovementFeed.tsx'
+import { useParams, useNavigate } from 'react-router-dom'
 
 export default function ProposalsPage() {
   const { state } = useDashboard()
+  const { id } = useParams()
+  const navigate = useNavigate()
 
   return (
     <div className="dashboard-content">
@@ -16,7 +19,11 @@ export default function ProposalsPage() {
         </div>
         <div className="deck-grid deck-grid-review">
           <div className="deck-primary-column">
-            <ImprovementFeed improvements={state.recent_improvements} />
+            <ImprovementFeed
+              improvements={state.recent_improvements}
+              openId={id}
+              onSelectRoute={(pid) => navigate(pid ? `/proposals/${pid}` : '/proposals')}
+            />
           </div>
         </div>
       </section>
