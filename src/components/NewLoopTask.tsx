@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LoopTaskDestination, LoopTaskHandoff, LoopTaskKind, LoopTaskPriority, LoopTaskProcessStep, LoopTaskStatus } from '../types.ts'
 import { fetchTaskQueue } from '../data/taskQueue.ts'
+import { supabase } from '../lib/supabase.ts'
 
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
 type SubmitStatus = 'delivered' | 'blocked_config' | 'failed' | 'queued'
@@ -368,8 +369,16 @@ export function NewLoopTask() {
       }
     }
     void loadStatus()
+    // Poll as a fallback…
     const interval = setInterval(() => void loadQueue(), 30_000)
-    return () => { cancelled = true; clearInterval(interval) }
+    // …and refresh the queue live whenever the worker changes a task, so cards
+    // move on their own (accepted → running → done) without a manual refresh.
+    const channel = supabase
+      .channel('queue-tasks')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_task_handoffs' }, () => { void loadQueue() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_task_events' }, () => { void loadQueue() })
+      .subscribe()
+    return () => { cancelled = true; clearInterval(interval); void supabase.removeChannel(channel) }
   }, [])
 
   const selectTemplate = (template: typeof templates[number]) => {

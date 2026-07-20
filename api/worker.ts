@@ -121,7 +121,7 @@ async function firecrawl(url: string): Promise<Scrape> {
 }
 
 // Deterministic SEO/UX heuristics over the fetched HTML — no LLM required.
-function auditSite(url: string, s: Scrape): string {
+function auditSite(url: string, s: Scrape, effort: string): string {
   const html = s.html
   const lower = html.toLowerCase()
   const count = (re: RegExp) => (html.match(re) || []).length
@@ -132,6 +132,8 @@ function auditSite(url: string, s: Scrape): string {
   const hasViewport = /name=["']viewport["']/i.test(html)
   const hasCanonical = /rel=["']canonical["']/i.test(html)
   const hasLdJson = lower.includes('application/ld+json')
+  const hasLang = /<html[^>]*\slang=/i.test(html)
+  const h2 = count(/<h2[\b >]/gi)
   const kb = Math.round(html.length / 1024)
   const titleLen = (s.title || '').length
   const descLen = (s.description || '').length
@@ -167,17 +169,23 @@ function auditSite(url: string, s: Scrape): string {
   else good.push('canonical set')
   if (!hasLdJson) med.push('[MED] No structured data (JSON-LD) — add schema.org markup for rich results.')
   else good.push('JSON-LD present')
+  if (!hasLang) med.push('[MED] No lang attribute on <html> — add lang="…" for accessibility and correct language targeting.')
+  else good.push('lang set')
+  if (h2 === 0) med.push('[MED] No H2 subheadings — add H2s to structure the content for readers and search engines.')
+  else good.push(`${h2} H2 subheadings`)
 
+  // Effort controls audit depth: low = top 3, medium = 5, high/max = up to 8.
+  const topN = effort === 'high' || effort === 'max' ? 8 : effort === 'low' ? 3 : 5
   const fixes = [...high, ...med]
-  const top5 = fixes.slice(0, 5)
+  const top = fixes.slice(0, topN)
   const lines: string[] = []
   lines.push(`SEO/UX audit — ${url}`)
-  lines.push(`Signals: title ${titleLen}c · desc ${descLen}c · H1×${h1} · ${imgs.length} imgs (${noAlt} no-alt) · ${scripts} scripts · ~${kb}KB · ${s.links.length} links · viewport ${hasViewport ? '✓' : '✗'} · canonical ${hasCanonical ? '✓' : '✗'} · JSON-LD ${hasLdJson ? '✓' : '✗'}.`)
+  lines.push(`Signals: title ${titleLen}c · desc ${descLen}c · H1×${h1} · H2×${h2} · ${imgs.length} imgs (${noAlt} no-alt) · ${scripts} scripts · ~${kb}KB · ${s.links.length} links · viewport ${hasViewport ? '✓' : '✗'} · canonical ${hasCanonical ? '✓' : '✗'} · JSON-LD ${hasLdJson ? '✓' : '✗'} · lang ${hasLang ? '✓' : '✗'}.`)
   lines.push('')
-  lines.push(`Top ${top5.length} highest-impact fixes:`)
-  top5.forEach((f, i) => lines.push(`${i + 1}. ${f}`))
+  lines.push(`Top ${top.length} highest-impact fixes:`)
+  top.forEach((f, i) => lines.push(`${i + 1}. ${f}`))
   if (good.length) { lines.push(''); lines.push(`Already solid: ${good.join(', ')}.`) }
-  if (fixes.length > 5) { lines.push(''); lines.push(`(+${fixes.length - 5} more lower-priority items.)`) }
+  if (fixes.length > top.length) { lines.push(''); lines.push(`(+${fixes.length - top.length} more lower-priority items.)`) }
   return lines.join('\n')
 }
 
@@ -190,6 +198,68 @@ async function claimOldest(): Promise<StoredTask | null> {
     if (claimed) { await event(row.task_id, 'accepted', 'Worker claimed the task from the queue.', { worker: 'vercel-cron' }); return claimed }
   }
   return null
+}
+
+function metaStr(task: StoredTask, key: string): string {
+  const v = task.metadata ? (task.metadata as Record<string, unknown>)[key] : undefined
+  return typeof v === 'string' ? v : ''
+}
+
+// Reaper: a task claimed but never finished (worker crashed / timed out mid-run)
+// stays stuck in accepted/running forever. Re-queue anything claimed > 3 min ago.
+async function requeueStale(): Promise<number> {
+  const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?status=in.(accepted,running)&claimed_at=lt.${encodeURIComponent(cutoff)}`, {
+    method: 'PATCH',
+    headers: headers('return=representation'),
+    body: JSON.stringify({ status: 'delivered', updated_at: new Date().toISOString() }),
+  })
+  if (!res.ok) return 0
+  const rows = (await res.json()) as StoredTask[]
+  for (const r of rows) await event(r.task_id, 'requeued', 'Task was stuck in progress and has been re-queued for another attempt.', {})
+  return rows.length
+}
+
+// Process a single already-claimed task end to end.
+async function processOne(task: StoredTask): Promise<{ taskId: string; status: string }> {
+  const ranAs = [metaStr(task, 'bot'), metaStr(task, 'model'), metaStr(task, 'effort')].filter(Boolean).join(' · ')
+  const effort = metaStr(task, 'effort')
+  const url = firstUrl(task)
+  if (!url) {
+    await patchTask(task.task_id, 'accepted', { status: 'needs_review' })
+    await event(task.task_id, 'needs_review', 'No URL found in the task — needs a human or a specialised agent to run this.', {})
+    await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
+    return { taskId: task.task_id, status: 'needs_review' }
+  }
+
+  await patchTask(task.task_id, 'accepted', { status: 'running' })
+  await event(task.task_id, 'running', `Fetching ${url} and analysing SEO/UX signals…`, {})
+  await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}\n${url}`)
+
+  if (!FIRECRAWL_API_KEY) {
+    await patchTask(task.task_id, 'running', { status: 'failed', error: 'FIRECRAWL_API_KEY not set' })
+    await event(task.task_id, 'failed', 'Scraper not configured (FIRECRAWL_API_KEY missing).', {})
+    return { taskId: task.task_id, status: 'failed' }
+  }
+
+  let summary: string
+  try {
+    const scrape = await firecrawl(url)
+    summary = auditSite(url, scrape, effort)
+    if (ranAs) summary += `\n\nRan as: ${ranAs}.`
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await patchTask(task.task_id, 'running', { status: 'failed', error: message })
+    await event(task.task_id, 'failed', `Could not fetch/analyse the page: ${message}`, {})
+    await telegram(`❌ Failed — ${url}\n${shorten(task.task)}\n${message}`)
+    return { taskId: task.task_id, status: 'failed' }
+  }
+
+  await event(task.task_id, 'result_ready', 'Audit complete — result written to result_summary.', {})
+  await patchTask(task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString() })
+  await event(task.task_id, 'done', 'Task completed by the worker.', {})
+  await telegram(`✅ Done — ${url}\n\n${summary}\n\nSee the full process on the dashboard → Task queue.`)
+  return { taskId: task.task_id, status: 'done' }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -208,47 +278,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const task = await claimOldest()
-    if (!task) { res.status(200).json({ ok: true, processed: null, message: 'No claimable tasks.' }); return }
-
-    const url = firstUrl(task)
-    if (!url) {
-      await patchTask(task.task_id, 'accepted', { status: 'needs_review' })
-      await event(task.task_id, 'needs_review', 'No URL found in the task — needs a human or a specialised agent to run this.', {})
-      await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
-      res.status(200).json({ ok: true, processed: task.task_id, status: 'needs_review', reason: 'no_url' })
-      return
+    const requeued = await requeueStale()
+    // Batch: drain up to 3 tasks per invocation so a backlog clears faster than
+    // one-per-minute. Each is claimed atomically and processed end to end.
+    const BATCH = 3
+    const processed: Array<{ taskId: string; status: string }> = []
+    for (let i = 0; i < BATCH; i++) {
+      const task = await claimOldest()
+      if (!task) break
+      processed.push(await processOne(task))
     }
-
-    await patchTask(task.task_id, 'accepted', { status: 'running' })
-    await event(task.task_id, 'running', `Fetching ${url} and analysing SEO/UX signals…`, {})
-    await telegram(`🔄 Working on it…\n${shorten(task.task)}\n${url}`)
-
-    if (!FIRECRAWL_API_KEY) {
-      await patchTask(task.task_id, 'running', { status: 'failed', error: 'FIRECRAWL_API_KEY not set' })
-      await event(task.task_id, 'failed', 'Scraper not configured (FIRECRAWL_API_KEY missing).', {})
-      res.status(200).json({ ok: false, processed: task.task_id, status: 'failed', reason: 'no_firecrawl_key' })
-      return
-    }
-
-    let summary: string
-    try {
-      const scrape = await firecrawl(url)
-      summary = auditSite(url, scrape)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      await patchTask(task.task_id, 'running', { status: 'failed', error: message })
-      await event(task.task_id, 'failed', `Could not fetch/analyse the page: ${message}`, {})
-      await telegram(`❌ Failed — ${url}\n${shorten(task.task)}\n${message}`)
-      res.status(200).json({ ok: false, processed: task.task_id, status: 'failed', error: message })
-      return
-    }
-
-    await event(task.task_id, 'result_ready', 'Audit complete — result written to result_summary.', {})
-    await patchTask(task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString() })
-    await event(task.task_id, 'done', 'Task completed by the worker.', {})
-    await telegram(`✅ Done — ${url}\n\n${summary}\n\nSee the full process on the dashboard → Task queue.`)
-    res.status(200).json({ ok: true, processed: task.task_id, status: 'done', url })
+    res.status(200).json({ ok: true, requeued, count: processed.length, processed })
   } catch (error) {
     res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })
   }
