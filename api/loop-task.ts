@@ -25,8 +25,30 @@ type VercelResponse = {
   setHeader: (name: string, value: string) => void
 }
 
-// Rate limiting utility
-import { rateLimit, getClientIdentifier } from './rate-limit'
+// Rate limiter — inlined (was ./rate-limit). A relative ESM import without a
+// file extension fails to resolve in the Vercel Node runtime (ERR_MODULE_NOT_FOUND),
+// which crashed this whole function; inlining removes that dependency.
+const RL_WINDOW_MS = 60_000
+const RL_MAX = 20
+const rlBuckets = new Map<string, { count: number; resetAt: number }>()
+
+function rateLimit(identifier: string): { allowed: boolean; remaining: number; resetIn: number } {
+  const now = Date.now()
+  const existing = rlBuckets.get(identifier)
+  if (!existing || now > existing.resetAt) {
+    rlBuckets.set(identifier, { count: 1, resetAt: now + RL_WINDOW_MS })
+    return { allowed: true, remaining: RL_MAX - 1, resetIn: RL_WINDOW_MS }
+  }
+  existing.count++
+  if (existing.count > RL_MAX) return { allowed: false, remaining: 0, resetIn: existing.resetAt - now }
+  return { allowed: true, remaining: RL_MAX - existing.count, resetIn: existing.resetAt - now }
+}
+
+function getClientIdentifier(req: { headers: Record<string, string | string[] | undefined> }): string {
+  const forwarded = req.headers['x-forwarded-for']
+  const ip = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]?.trim()
+  return ip || 'unknown'
+}
 
 interface ProcessStep {
   label: string
@@ -163,7 +185,7 @@ async function supabaseFetch(path: string, init: RequestInit = {}) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     ...init,
     headers: {
-      ...supabaseHeaders(init.headers && 'Prefer' in init.headers ? undefined : undefined),
+      ...supabaseHeaders(),
       ...(init.headers || {}),
     },
   })
