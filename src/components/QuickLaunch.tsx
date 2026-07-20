@@ -47,11 +47,15 @@ export function QuickLaunch() {
   const [liveStatus, setLiveStatus] = useState<string | null>(null)
   const [resultSummary, setResultSummary] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mountedRef = useRef(true)
 
   const stopPolling = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
   }
-  useEffect(() => () => stopPolling(), [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false; stopPolling() }
+  }, [])
 
   const startPolling = (taskId: string) => {
     stopPolling()
@@ -63,7 +67,7 @@ export function QuickLaunch() {
       tries += 1
       try {
         const res = await fetch(`/api/loop-task?taskId=${encodeURIComponent(taskId)}`)
-        if (res.ok) {
+        if (res.ok && mountedRef.current) {
           const json = await res.json() as { tasks?: Array<{ status?: string; result_summary?: string }>; events?: TaskEvent[] }
           const t = json.tasks?.[0]
           setEvents(json.events || [])
