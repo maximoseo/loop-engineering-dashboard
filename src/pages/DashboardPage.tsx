@@ -11,12 +11,17 @@ import { FailureLibrary } from '../components/FailureLibrary.tsx'
 import { OptimizationBacklog } from '../components/OptimizationBacklog.tsx'
 import { LoopHealthPanel } from '../components/LoopHealthPanel.tsx'
 import { PanelBoundary } from '../components/PanelBoundary.tsx'
+import { QuickLaunch } from '../components/QuickLaunch.tsx'
 
 export default function DashboardPage() {
   const { state, health, live, lastUpdated, elapsed, load } = useDashboard()
 
   return (
     <div className="dashboard-content">
+      <PanelBoundary label="task launcher">
+        <QuickLaunch />
+      </PanelBoundary>
+
       {/* Compact operational overview */}
       <OperationalOverview
         state={state}

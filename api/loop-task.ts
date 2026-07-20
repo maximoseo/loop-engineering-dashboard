@@ -10,6 +10,9 @@ type RequestBody = {
   destination?: unknown
   expectedResult?: unknown
   contextUrl?: unknown
+  bot?: unknown
+  model?: unknown
+  effort?: unknown
 }
 
 type VercelRequest = {
@@ -258,7 +261,7 @@ async function getTask(task_id: string) {
   return { tasks: await taskResponse.json(), events: await eventResponse.json() }
 }
 
-async function sendTelegram(payload: { id: string; task: string; kind: string; priority: string }) {
+async function sendTelegram(payload: { id: string; task: string; kind: string; priority: string; bot?: string; model?: string; effort?: string }) {
   const token = process.env.TELEGRAM_BOT_TOKEN
   const chatId = process.env.TELEGRAM_CHAT_ID
   if (!token || !chatId) throw new Error('Telegram env is missing')
@@ -268,9 +271,12 @@ async function sendTelegram(payload: { id: string; task: string; kind: string; p
     `<b>ID:</b> <code>${escapeHtml(payload.id)}</code>`,
     `<b>Type:</b> ${escapeHtml(payload.kind)}`,
     `<b>Priority:</b> ${escapeHtml(payload.priority)}`,
+    payload.bot ? `<b>Bot:</b> ${escapeHtml(payload.bot)}` : '',
+    payload.model ? `<b>Model:</b> ${escapeHtml(payload.model)}` : '',
+    payload.effort ? `<b>Effort:</b> ${escapeHtml(payload.effort)}` : '',
     '',
     escapeHtml(payload.task),
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
@@ -340,6 +346,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const destination = typeof body.destination === 'string' && validDestinations.has(body.destination) ? body.destination as Destination : 'auto'
   const expectedResult = typeof body.expectedResult === 'string' ? body.expectedResult.trim().slice(0, 1000) : ''
   const contextUrl = typeof body.contextUrl === 'string' ? body.contextUrl.trim().slice(0, 1000) : ''
+  const bot = typeof body.bot === 'string' ? body.bot.trim().slice(0, 60) : ''
+  const model = typeof body.model === 'string' ? body.model.trim().slice(0, 60) : ''
+  const validEfforts = new Set(['low', 'medium', 'high', 'max'])
+  const effort = typeof body.effort === 'string' && validEfforts.has(body.effort) ? body.effort : ''
 
   if (task.length < 10 || task.length > 4000) {
     const process = processForInvalidInput()
@@ -363,7 +373,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       resolved_destination,
       delivery_message: message,
       process,
-      metadata: { expectedResult, contextUrl },
+      metadata: { expectedResult, contextUrl, bot, model, effort },
     })
   } catch (error) {
     res.status(500).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: error instanceof Error ? error.message : String(error), process })
@@ -390,7 +400,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (destination === 'telegram' || (destination === 'auto' && readiness.telegramConfigured)) {
-      const telegramMessageId = await sendTelegram({ id, task, kind, priority })
+      const telegramMessageId = await sendTelegram({ id, task, kind, priority, bot, model, effort })
       status = 'delivered'
       resolved_destination = 'telegram'
       message = 'Task delivered to the configured Telegram bot/chat.'
