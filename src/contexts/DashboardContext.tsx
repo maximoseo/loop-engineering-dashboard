@@ -3,6 +3,7 @@ import type { DataHealth, LoopState } from '../types.ts'
 import { mockLoopState } from '../data/mockData.ts'
 import { emptyDataHealth } from '../data/dataHealth.ts'
 import { fetchLoopState } from '../data/liveData.ts'
+import { supabase } from '../lib/supabase.ts'
 
 const POLL_MS = 30_000
 
@@ -59,6 +60,27 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }, 1000)
     return () => clearInterval(tick)
   }, [lastUpdated])
+
+  // Realtime: refetch (debounced) whenever a live table changes. The 30s poll
+  // above stays as a fallback if realtime is unavailable.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const trigger = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => void load(), 1200)
+    }
+    const channel = supabase
+      .channel('loop-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_state' }, trigger)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_scores' }, trigger)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_proposals' }, trigger)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_orchestrator_runs' }, trigger)
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      void supabase.removeChannel(channel)
+    }
+  }, [load])
 
   return (
     <DashboardContext.Provider value={{ state, health, live, lastUpdated, elapsed, refreshing, load }}>

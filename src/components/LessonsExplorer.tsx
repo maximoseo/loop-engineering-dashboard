@@ -1,5 +1,4 @@
 import { useState, useMemo } from 'react'
-import type { BacklogItem, FailurePattern, ImprovementProposal, Iteration } from '../types'
 
 type LessonLike = {
   id: string

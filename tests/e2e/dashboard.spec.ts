@@ -1,49 +1,23 @@
 import { expect, test } from '@playwright/test'
 
-test('dashboard has a clear operational overview and connected sources', async ({ page }) => {
+// The dashboard is behind real Supabase Auth: any protected route redirects an
+// unauthenticated visitor to the sign-in screen. This smoke verifies the gate and
+// that the app boots with no console errors. A fully authenticated end-to-end run
+// requires E2E credentials + Supabase env in CI (see docs/production-runbook.md).
+test('unauthenticated visitors get a working sign-in gate', async ({ page }) => {
   const consoleErrors: string[] = []
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
 
-  await page.goto('/?v=e2e-clarity', { waitUntil: 'domcontentloaded' })
+  await page.goto('/', { waitUntil: 'networkidle' })
 
   await expect(page).toHaveTitle(/Loop Engineering Dashboard/i)
-  await expect(page.getByRole('heading', { name: /A control room for improving agents safely/i })).toBeVisible()
-  await expect(page.getByText(/watches real loop telemetry/i)).toBeVisible()
-  await expect(page.getByText(/Observe/i).first()).toBeVisible()
-  await expect(page.getByText(/Score/i).first()).toBeVisible()
-  await expect(page.getByText(/Learn/i).first()).toBeVisible()
-  await expect(page.getByText(/Propose/i).first()).toBeVisible()
-  await expect(page.getByText(/Approve/i).first()).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Where to operate next/i })).toBeVisible()
-  await expect(page.getByRole('link', { name: /Production dashboard opens in a new tab/i })).toHaveAttribute('href', 'https://loop-engineering-dashboard.vercel.app')
-  await expect(page.getByRole('link', { name: /GitHub repository opens in a new tab/i })).toHaveAttribute('href', 'https://github.com/maximoseo/loop-engineering-dashboard')
-  await expect(page.getByRole('link', { name: /Vercel project opens in a new tab/i })).toHaveAttribute('href', 'https://vercel.com/maximo-seo/loop-engineering-dashboard')
-  await expect(page.getByRole('link', { name: /Dashboards panel opens in a new tab/i })).toHaveAttribute('href', 'https://dashboards-panel.maximo-seo.ai')
-  await expect(page.getByRole('heading', { name: /Send a task or project into Loop Engineering/i })).toBeVisible()
-  await expect(page.getByText(/Task Command Workbench/i)).toBeVisible()
-  await expect(page.getByLabel(/Today in Loop Engineering/i)).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Start with the highest-signal work/i })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Health & Data Quality|All systems ready|Needs attention|Demo \/ fallback/i }).first()).toBeVisible()
-  await expect(page.getByLabel(/Task \/ project brief/i)).toBeVisible()
-  await expect(page.getByRole('button', { name: /Send to Loop/i })).toBeDisabled()
-  await expect(page.getByRole('button', { name: /New project/i })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /What happens after Send/i })).toBeVisible()
-  await expect(page.getByText(/Capture request/i)).toBeVisible()
-  await expect(page.getByText(/Route to bot \/ worker/i)).toBeVisible()
-  await expect(page.getByText(/Run \/ wait for agent/i)).toBeVisible()
-  await expect(page.getByText(/Verify & report back/i)).toBeVisible()
-  await expect(page.getByLabel(/Delivery readiness/i)).toBeVisible()
-  await expect(page.getByLabel(/Persistent task queue/i)).toBeVisible()
-  await expect(page.getByText(/Latest Loop handoffs from Supabase/i)).toBeVisible()
-  await expect(page.getByLabel(/Task draft preview/i)).toBeVisible()
-  await page.getByLabel(/Task \/ project brief/i).fill('Start a new Loop Engineering project and report the process status back here.')
-  await expect(page.getByRole('button', { name: /Send to Loop/i })).toBeEnabled()
-  await expect(page.getByText('python scripts/loopctl.py approve <proposal-id>')).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Live data proof/i })).toBeVisible()
-  await expect(page.getByPlaceholder('Search proposals...')).toBeVisible()
-  await expect(page.getByPlaceholder('Search iterations by task or id...')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Sign in/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Sign in/i })).toBeVisible()
+  await expect(page.locator('input[type="email"]')).toBeVisible()
+  await expect(page.locator('input[type="password"]')).toBeVisible()
+  await expect(page.getByRole('link', { name: /Sign up/i })).toBeVisible()
 
   expect(consoleErrors).toEqual([])
 })
