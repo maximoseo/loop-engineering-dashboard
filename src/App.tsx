@@ -54,6 +54,7 @@ export default function App() {
                 <Route path="queue" element={<QueuePage />} />
                 <Route path="orchestrator" element={<OrchestratorPage />} />
                 <Route path="proposals" element={<ProposalsPage />} />
+                <Route path="proposals/:id" element={<ProposalsPage />} />
                 <Route path="failures" element={<FailuresPage />} />
                 <Route path="evals" element={<EvalsPage />} />
                 <Route path="analytics" element={<AnalyticsPage />} />

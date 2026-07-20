@@ -71,6 +71,48 @@ export const mockLoopState: LoopState = {
   score_trend: [75, 78, 82, 79, 85, 83, 88, 86, 91, 84, 89, 92, 87, 90, 93, 88, 91, 89, 94, 86, 92, 95, 88, 91, 93, 89, 92, 87, 90, 92, 88, 91, 94, 89, 92, 90, 88, 91, 93, 92, 89, 92, 90, 88, 91, 93, 89, 92, 90, 92],
 }
 
+// Honest empty state — shown when the DB has no iterations or config is missing,
+// so the dashboard never renders fabricated telemetry as if it were live.
+export const emptyLoopState: LoopState = {
+  current_phase: 'IDLE',
+  is_loop_running: false,
+  avg_score_7d: 0,
+  total_iterations: 0,
+  improvements_activated: 0,
+  improvements_rolled_back: 0,
+  last_score: {
+    task_success: 0,
+    accuracy: 0,
+    user_alignment: 0,
+    tool_quality: 0,
+    efficiency: 0,
+    safety: 0,
+    validation: 0,
+    memory_learning: 0,
+    total: 0,
+  },
+  phases: [
+    { name: 'OBSERVING', status: 'pending' },
+    { name: 'SCORING', status: 'pending' },
+    { name: 'LEARNING', status: 'pending' },
+    { name: 'PROPOSING', status: 'pending' },
+    { name: 'TESTING', status: 'pending' },
+    { name: 'ACTIVATING', status: 'pending' },
+    { name: 'MONITORING', status: 'pending' },
+  ],
+  recent_iterations: [],
+  recent_improvements: [],
+  failure_library: [],
+  optimization_backlog: [],
+  eval_results: [],
+  eval_run_label: undefined,
+  score_trend: [0],
+  score_history: [],
+  lessons: [],
+  activations: [],
+  cost: undefined,
+}
+
 export const dashboardMeta = {
   id: 'loop-engineering',
   name: 'Loop Engineering',
