@@ -160,6 +160,18 @@ export function ImprovementFeed({ improvements }: Props) {
             <span className="rounded-lg bg-[var(--bg-base)]/60 p-2">Before<br /><strong>{selected.eval_score_before}</strong></span>
             <span className="rounded-lg bg-[var(--bg-base)]/60 p-2">After<br /><strong>{selected.eval_score_after}</strong></span>
           </div>
+          {(selected.old_value || selected.new_value) && (
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="rounded-xl border border-[rgba(248,113,113,0.25)] bg-[rgba(248,113,113,0.05)] p-3">
+                <p className="text-[10px] uppercase tracking-wider text-[var(--error)]">Before</p>
+                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-[var(--text-secondary)]">{selected.old_value || '—'}</pre>
+              </div>
+              <div className="rounded-xl border border-[rgba(34,211,238,0.25)] bg-[rgba(34,211,238,0.05)] p-3">
+                <p className="text-[10px] uppercase tracking-wider text-[var(--success)]">After</p>
+                <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-[var(--text-secondary)]">{selected.new_value || '—'}</pre>
+              </div>
+            </div>
+          )}
           <div className="mt-3 rounded-xl border border-[rgba(96,165,250,0.25)] bg-[rgba(96,165,250,0.06)] p-3">
             <p className="text-[10px] uppercase tracking-wider text-[#60a5fa]">Safe action handoff</p>
             <code className="mt-2 block overflow-x-auto rounded-lg bg-black/30 p-2 text-xs text-[var(--text-secondary)]">{selectedCommand}</code>
