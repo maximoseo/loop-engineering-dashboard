@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import type { DataHealth, LoopState } from '../types.ts'
-import { mockLoopState } from '../data/mockData.ts'
+import { emptyLoopState } from '../data/mockData.ts'
 import { emptyDataHealth } from '../data/dataHealth.ts'
 import { fetchLoopState } from '../data/liveData.ts'
 import { supabase } from '../lib/supabase.ts'
@@ -20,7 +20,7 @@ interface DashboardContextValue {
 const DashboardContext = createContext<DashboardContextValue | null>(null)
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<LoopState>(mockLoopState)
+  const [state, setState] = useState<LoopState>(emptyLoopState)
   const [health, setHealth] = useState<DataHealth>(() => emptyDataHealth())
   const [live, setLive] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)

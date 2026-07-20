@@ -18,7 +18,7 @@ type VercelResponse = {
 }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 interface ApprovalRequest {
   proposalId: string
@@ -26,7 +26,7 @@ interface ApprovalRequest {
   reason: string
 }
 
-async function verifySession(token: string): Promise<{ userId: string } | null> {
+async function verifySession(token: string): Promise<{ userId: string; email?: string } | null> {
   if (!SUPABASE_URL) return null
   const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: {
@@ -35,8 +35,8 @@ async function verifySession(token: string): Promise<{ userId: string } | null> 
     },
   })
   if (!response.ok) return null
-  const user = await response.json() as { id: string }
-  return { userId: user.id }
+  const user = await response.json() as { id: string; email?: string }
+  return { userId: user.id, email: user.email }
 }
 
 async function updateProposal(proposalId: string, status: string, reason: string) {
@@ -45,7 +45,7 @@ async function updateProposal(proposalId: string, status: string, reason: string
     {
       method: 'PATCH',
       headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        apikey: SUPABASE_SERVICE_ROLE_KEY as string,
         authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
         'content-type': 'application/json',
         prefer: 'return=representation',
@@ -65,7 +65,7 @@ async function insertActivation(proposalId: string, action: string, reason: stri
   await fetch(`${SUPABASE_URL}/rest/v1/loop_activations`, {
     method: 'POST',
     headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      apikey: SUPABASE_SERVICE_ROLE_KEY as string,
       authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       'content-type': 'application/json',
     },
@@ -101,6 +101,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    res.status(500).json({ ok: false, message: 'Server is not configured for approvals.' })
+    return
+  }
+
   // Verify auth
   const authHeader = req.headers.authorization
   const token = Array.isArray(authHeader) ? authHeader[0] : authHeader?.replace('Bearer ', '')
@@ -112,6 +117,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = await verifySession(token)
   if (!session) {
     res.status(401).json({ ok: false, message: 'Invalid or expired session.' })
+    return
+  }
+
+  // Optional role gate: if LOOP_APPROVER_EMAILS is set, only those users may approve.
+  const approvers = (process.env.LOOP_APPROVER_EMAILS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+  if (approvers.length && (!session.email || !approvers.includes(session.email.toLowerCase()))) {
+    res.status(403).json({ ok: false, message: 'You are not authorized to approve proposals.' })
     return
   }
 

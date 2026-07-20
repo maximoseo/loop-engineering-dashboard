@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ImprovementProposal, ProposalStatus, ProposalType } from '../types.ts'
 import type { JSX } from 'react'
 import { filterImprovements, proposalApprovalCommand, type RiskFilter } from '../lib/operatorFilters.ts'
 
 interface Props {
   improvements: ImprovementProposal[]
+  openId?: string
+  onSelectRoute?: (id: string | null) => void
 }
 
 const statusConfig: Record<ProposalStatus, { color: string; label: string }> = {
@@ -46,7 +48,7 @@ function StatusIcon({ status }: { status: ProposalStatus }) {
 
 const selectClass = 'rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-2 py-1.5 text-xs text-[var(--text-secondary)] outline-none'
 
-export function ImprovementFeed({ improvements }: Props) {
+export function ImprovementFeed({ improvements, openId, onSelectRoute }: Props) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<(typeof statuses)[number]>('all')
   const [risk, setRisk] = useState<RiskFilter>('all')
@@ -56,6 +58,12 @@ export function ImprovementFeed({ improvements }: Props) {
     () => filterImprovements(improvements, { query, status, risk, type }),
     [improvements, query, risk, status, type],
   )
+  useEffect(() => {
+    if (openId) {
+      const found = improvements.find((i) => i.id === openId)
+      setSelected(found ?? null)
+    }
+  }, [openId, improvements])
   const selectedCommand = selected ? proposalApprovalCommand(selected.id) : ''
 
   const copyApproval = async () => {
@@ -103,7 +111,10 @@ export function ImprovementFeed({ improvements }: Props) {
             <button
               key={imp.id}
               className="group relative overflow-hidden rounded-xl glass glass-hover p-4 transition-all duration-300 text-left focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-              onClick={() => setSelected(imp)}
+              onClick={() => {
+                setSelected(imp)
+                onSelectRoute?.(imp.id)
+              }}
             >
               <div className="absolute top-0 left-0 w-1 h-full" style={{ background: sc.color, opacity: 0.6 }} />
 
@@ -150,7 +161,7 @@ export function ImprovementFeed({ improvements }: Props) {
               <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Proposal detail</p>
               <h4 className="mt-1 text-base font-semibold text-[var(--text)] break-all">{selected.target}</h4>
             </div>
-            <button className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]" onClick={() => setSelected(null)}>Close</button>
+            <button className="text-xs text-[var(--text-muted)] hover:text-[var(--text)]" onClick={() => { setSelected(null); onSelectRoute?.(null) }}>Close</button>
           </div>
           <p className="mt-3 text-sm text-[var(--text-secondary)]">{selected.description || 'No rationale provided.'}</p>
           <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
