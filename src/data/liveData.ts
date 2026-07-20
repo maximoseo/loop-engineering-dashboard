@@ -15,7 +15,7 @@ import type {
   ActivationRecord,
   CostSummary,
 } from '../types.ts'
-import { mockLoopState } from './mockData.ts'
+import { emptyLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -225,7 +225,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
   const startedAt = performance.now()
   if (!hasSupabaseConfig()) {
     return {
-      state: mockLoopState,
+      state: emptyLoopState,
       live: false,
       health: emptyDataHealth('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY'),
     }
@@ -246,7 +246,7 @@ export async function fetchLoopState(): Promise<LiveResult> {
   })
 
   if (totalIterations === 0) {
-    return { state: mockLoopState, live: false, health: healthFromCounts }
+    return { state: emptyLoopState, live: false, health: healthFromCounts }
   }
 
   const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw, allLessonRows, activationRows, costRows] =
