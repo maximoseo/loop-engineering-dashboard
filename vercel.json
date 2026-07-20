@@ -5,6 +5,9 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
+  "crons": [
+    { "path": "/api/worker", "schedule": "* * * * *" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
