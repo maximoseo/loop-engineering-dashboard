@@ -14,9 +14,12 @@ type VercelResponse = {
 type OrchestrationMode = 'lead_agent' | 'parallel_specialists' | 'debate' | 'pipeline' | 'swarm_verify'
 type AssignmentStatus = 'queued' | 'leased' | 'running' | 'blocked' | 'needs_review' | 'done' | 'failed' | 'cancelled'
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+// Server-only env — no VITE_ fallbacks. The VITE_ vars are bundled into the
+// browser build, so relying on them server-side both leaks config intent and
+// silently "works" in dev while being unset in production.
+const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
 const WORKER_TOKEN = process.env.ORCHESTRATOR_WORKER_TOKEN
 
 function id(prefix: string) {
@@ -277,6 +280,14 @@ async function createApproval(body: Record<string, unknown>) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
+
+  // Fail fast (and loud) when the server is misconfigured rather than throwing
+  // deep inside a Supabase call with a confusing 500.
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    res.status(503).json({ ok: false, message: 'Orchestrator is not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required).' })
+    return
+  }
+
   try {
     if (req.method === 'GET') {
       const runId = q(req, 'runId')

@@ -22,3 +22,13 @@ export const supabase: SupabaseClient = createClient(
 )
 
 export const supabaseConfigured = Boolean(url && key)
+
+/**
+ * Current operator session token, or null when signed out. Data reads in
+ * liveData.ts send this as the Authorization bearer so RLS sees an
+ * authenticated role instead of the anon key.
+ */
+export async function getAccessToken(): Promise<string | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session?.access_token ?? null
+}

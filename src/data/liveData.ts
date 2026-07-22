@@ -15,6 +15,7 @@ import type {
   ActivationRecord,
 } from '../types.ts'
 import { humanizeTarget, summarizeCost, cleanIterationTask } from '../lib/loopFormat.ts'
+import { getAccessToken } from '../lib/supabase.ts'
 import { emptyLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
 
@@ -33,18 +34,23 @@ const PHASE_ORDER: LoopPhase[] = [
 
 const hasSupabaseConfig = () => Boolean(SUPABASE_URL && SUPABASE_KEY)
 
-const supabaseHeaders = () => {
+// Reads authenticate as the signed-in operator: the anon key is still required
+// as the Supabase `apikey` header, but the Authorization bearer must be the
+// user's session token so RLS sees the `authenticated` role — never the anon key.
+const supabaseHeaders = async () => {
   if (!SUPABASE_KEY) throw new Error('Missing VITE_SUPABASE_ANON_KEY')
+  const token = await getAccessToken()
+  if (!token) throw new Error('Not authenticated')
   return {
     apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${SUPABASE_KEY}`,
+    Authorization: `Bearer ${token}`,
   }
 }
 
 async function rest<T>(path: string): Promise<T> {
   if (!SUPABASE_URL) throw new Error('Missing VITE_SUPABASE_URL')
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: supabaseHeaders(),
+    headers: await supabaseHeaders(),
   })
   if (!res.ok) throw new Error(`Supabase ${path}: HTTP ${res.status}`)
   return (await res.json()) as T
@@ -66,7 +72,7 @@ async function countRows(table: LoopTableName | 'loop_proposals', filter = ''): 
     {
       method: 'HEAD',
       headers: {
-        ...supabaseHeaders(),
+        ...(await supabaseHeaders()),
         Prefer: 'count=exact',
         Range: '0-0',
       },

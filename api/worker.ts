@@ -428,6 +428,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // access logs or URL history. Cron uses the Bearer CRON_SECRET Vercel injects;
   // manual/kick callers use the x-worker-secret header.
   const hdr = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || ''
+  // Fail-closed: with no worker auth token configured the endpoint has nothing to
+  // authenticate against, so refuse every call rather than run unauthenticated.
+  if (!process.env.WORKER_SECRET && !process.env.CRON_SECRET) {
+    res.status(403).json({ ok: false, message: 'Worker auth is not configured (WORKER_SECRET or CRON_SECRET required).' })
+    return
+  }
   const cronOk = process.env.CRON_SECRET && hdr(req.headers.authorization) === `Bearer ${process.env.CRON_SECRET}`
   const secret = hdr(req.headers['x-worker-secret'])
   const manualOk = process.env.WORKER_SECRET && secret === process.env.WORKER_SECRET

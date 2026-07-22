@@ -1,6 +1,7 @@
 -- Add the dashboard's live tables to the supabase_realtime publication so the SPA
--- can subscribe to postgres_changes for instant updates. Idempotent. Anon SELECT
--- RLS already allows the anon role to receive these change feeds.
+-- can subscribe to postgres_changes for instant updates. Idempotent. Authenticated
+-- SELECT RLS allows the authenticated (signed-in operator) role to receive these
+-- change feeds.
 do $$
 declare t text;
 begin

@@ -190,7 +190,10 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
     let interval: ReturnType<typeof setInterval> | null = null
     const poll = async () => {
       try {
-        const response = await fetch(`/api/loop-task?taskId=${encodeURIComponent(task.task_id)}`)
+        const token = getAccessToken()
+        const response = await fetch(`/api/loop-task?taskId=${encodeURIComponent(task.task_id)}`, {
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+        })
         if (!response.ok) return
         const json = await response.json() as { tasks?: LoopTaskHandoff[]; events?: TaskEvent[] }
         if (!cancelled) {
@@ -212,7 +215,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
     const active = ['queued', 'delivered', 'accepted', 'running', 'needs_review'].includes(task.status)
     interval = active ? setInterval(() => void poll(), 6_000) : null
     return () => { cancelled = true; if (interval) clearInterval(interval) }
-  }, [task.task_id, task.status])
+  }, [task.task_id, task.status, getAccessToken])
 
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null
@@ -407,7 +410,10 @@ export function NewLoopTask() {
     let cancelled = false
     async function loadStatus() {
       try {
-        const response = await fetch('/api/loop-task?includeTasks=true')
+        const token = getAccessToken()
+        const response = await fetch('/api/loop-task?includeTasks=true', {
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+        })
         const json = (await response.json()) as StatusResponse
         if (!cancelled && json.deliveryReadiness) setReadiness(json.deliveryReadiness)
         if (!cancelled && json.tasks) setTasks(json.tasks)
@@ -426,7 +432,7 @@ export function NewLoopTask() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_task_events' }, () => { void loadQueue() })
       .subscribe()
     return () => { cancelled = true; mountedRef.current = false; clearInterval(interval); void supabase.removeChannel(channel) }
-  }, [])
+  }, [getAccessToken])
 
   const selectTemplate = (template: typeof templates[number]) => {
     setTask(template.text)

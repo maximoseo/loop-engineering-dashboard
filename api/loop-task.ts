@@ -327,25 +327,42 @@ async function kickWorker(req: VercelRequest) {
   } catch { /* handed off (or cron will pick it up) */ }
 }
 
-// Role gate: true if the caller may submit tasks. Fail-open — an empty/unset
-// LOOP_OPERATOR_EMAILS allowlist means everyone may submit. When set, the caller
-// must present a valid Supabase session whose email is on the list.
-async function operatorAllowed(req: VercelRequest): Promise<boolean> {
-  const allow = (process.env.LOOP_OPERATOR_EMAILS || '')
-    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-  if (allow.length === 0) return true
+// Verify a Supabase session token against the Auth API. Returns the user's
+// identity, or null when the token is missing/invalid/expired.
+async function verifySession(token: string): Promise<{ email?: string } | null> {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
-  const authHeader = Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : req.headers.authorization
-  const token = (authHeader || '').replace('Bearer ', '')
-  if (!token || !supabaseUrl) return false
+  if (!token || !supabaseUrl) return null
   try {
     const r = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: process.env.VITE_SUPABASE_ANON_KEY || '', authorization: `Bearer ${token}` },
     })
-    if (!r.ok) return false
-    const u = await r.json() as { email?: string }
-    return !!u.email && allow.includes(u.email.toLowerCase())
-  } catch { return false }
+    if (!r.ok) return null
+    return await r.json() as { email?: string }
+  } catch { return null }
+}
+
+function bearerToken(req: VercelRequest): string {
+  const authHeader = Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : req.headers.authorization
+  return (authHeader || '').replace('Bearer ', '')
+}
+
+type GateResult = { ok: true; email?: string } | { ok: false; status: number; message: string }
+
+// Role gate: which callers may read/submit tasks. Fail-closed — every caller must
+// present a valid Supabase session, and an empty/unset LOOP_OPERATOR_EMAILS
+// allowlist denies everyone (no operators configured means no access).
+async function operatorGate(req: VercelRequest): Promise<GateResult> {
+  const token = bearerToken(req)
+  if (!token) return { ok: false, status: 401, message: 'Authentication required. Provide a Supabase session token.' }
+  const session = await verifySession(token)
+  if (!session) return { ok: false, status: 401, message: 'Invalid or expired session.' }
+  const allow = (process.env.LOOP_OPERATOR_EMAILS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  if (allow.length === 0) return { ok: false, status: 403, message: 'No operators configured.' }
+  if (!session.email || !allow.includes(session.email.toLowerCase())) {
+    return { ok: false, status: 403, message: 'You are not authorized to submit tasks (operator access required).' }
+  }
+  return { ok: true, email: session.email }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -369,14 +386,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     const taskIdParam = queryValue(req, 'taskId')
-    if (taskIdParam) {
-      const detail = await getTask(taskIdParam)
-      res.status(200).json({ ok: true, deliveryReadiness: readiness, ...detail })
+    const includeTasks = queryValue(req, 'includeTasks') === 'true'
+    // Task data (queue list or a single task's detail) is operator-only; the bare
+    // health/readiness probe stays public so uptime checks keep working.
+    if (taskIdParam || includeTasks) {
+      const gate = await operatorGate(req)
+      if (!gate.ok) {
+        res.status(gate.status).json({ ok: false, message: gate.message, deliveryReadiness: readiness })
+        return
+      }
+      if (taskIdParam) {
+        const detail = await getTask(taskIdParam)
+        res.status(200).json({ ok: true, deliveryReadiness: readiness, ...detail })
+        return
+      }
+      const tasks = await listTasks()
+      res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks })
       return
     }
-    const includeTasks = queryValue(req, 'includeTasks') === 'true'
-    const tasks = includeTasks ? await listTasks() : []
-    res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks })
+    res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks: [] })
     return
   }
 
@@ -385,10 +413,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  // Role gate (fail-open): if LOOP_OPERATOR_EMAILS is set, only those signed-in
-  // users may submit tasks; if it is unset, everyone can (preserves existing behaviour).
-  if (!(await operatorAllowed(req))) {
-    res.status(403).json({ ok: false, message: 'You are not authorized to submit tasks (operator access required).' })
+  // Role gate (fail-closed): the caller must present a valid Supabase session
+  // whose email is on the LOOP_OPERATOR_EMAILS allowlist. An empty allowlist
+  // denies everyone, and a missing/invalid session is rejected with 401.
+  const gate = await operatorGate(req)
+  if (!gate.ok) {
+    res.status(gate.status).json({ ok: false, message: gate.message })
     return
   }
 

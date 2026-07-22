@@ -120,12 +120,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  // Optional role gate: if LOOP_APPROVER_EMAILS is set, only those users may approve.
+  // Role gate (fail-closed): an empty LOOP_APPROVER_EMAILS allowlist denies
+  // everyone — approvals must be explicitly granted to named operators.
   const approvers = (process.env.LOOP_APPROVER_EMAILS || '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean)
-  if (approvers.length && (!session.email || !approvers.includes(session.email.toLowerCase()))) {
+  if (approvers.length === 0) {
+    res.status(403).json({ ok: false, message: 'No approvers configured.' })
+    return
+  }
+  if (!session.email || !approvers.includes(session.email.toLowerCase())) {
     res.status(403).json({ ok: false, message: 'You are not authorized to approve proposals.' })
     return
   }

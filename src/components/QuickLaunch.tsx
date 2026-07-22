@@ -83,7 +83,10 @@ export function QuickLaunch() {
       inFlight = true
       tries += 1
       try {
-        const res = await fetch(`/api/loop-task?taskId=${encodeURIComponent(taskId)}`)
+        const token = getAccessToken()
+        const res = await fetch(`/api/loop-task?taskId=${encodeURIComponent(taskId)}`, {
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+        })
         if (res.ok && mountedRef.current) {
           const json = await res.json() as { tasks?: Array<{ status?: string; result_summary?: string }>; events?: TaskEvent[] }
           const t = json.tasks?.[0]
