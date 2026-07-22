@@ -15,7 +15,7 @@ import type {
   ActivationRecord,
 } from '../types.ts'
 import { humanizeTarget, summarizeCost, cleanIterationTask } from '../lib/loopFormat.ts'
-import { getAccessToken } from '../lib/supabase.ts'
+import { supabase } from '../lib/supabase.ts'
 import { emptyLoopState } from './mockData.ts'
 import { buildDataHealth, emptyDataHealth, requiredLoopTables } from './dataHealth.ts'
 
@@ -34,45 +34,40 @@ const PHASE_ORDER: LoopPhase[] = [
 
 const hasSupabaseConfig = () => Boolean(SUPABASE_URL && SUPABASE_KEY)
 
-// Reads authenticate as the signed-in operator: the anon key is still required
-// as the Supabase `apikey` header, but the Authorization bearer must be the
-// user's session token so RLS sees the `authenticated` role — never the anon key.
-const supabaseHeaders = async () => {
+const supabaseHeaders = (accessToken: string) => {
   if (!SUPABASE_KEY) throw new Error('Missing VITE_SUPABASE_ANON_KEY')
-  const token = await getAccessToken()
-  if (!token) throw new Error('Not authenticated')
   return {
     apikey: SUPABASE_KEY,
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${accessToken}`,
   }
 }
 
-async function rest<T>(path: string): Promise<T> {
+async function rest<T>(path: string, accessToken: string): Promise<T> {
   if (!SUPABASE_URL) throw new Error('Missing VITE_SUPABASE_URL')
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: await supabaseHeaders(),
+    headers: supabaseHeaders(accessToken),
   })
   if (!res.ok) throw new Error(`Supabase ${path}: HTTP ${res.status}`)
   return (await res.json()) as T
 }
 
-async function safeRest<T>(path: string, fallback: T, errors: string[], label: string): Promise<T> {
+async function safeRest<T>(path: string, fallback: T, errors: string[], label: string, accessToken: string): Promise<T> {
   try {
-    return await rest<T>(path)
+    return await rest<T>(path, accessToken)
   } catch (error) {
     errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`)
     return fallback
   }
 }
 
-async function countRows(table: LoopTableName | 'loop_proposals', filter = ''): Promise<number> {
+async function countRows(table: LoopTableName | 'loop_proposals', accessToken: string, filter = ''): Promise<number> {
   if (!SUPABASE_URL) throw new Error('Missing VITE_SUPABASE_URL')
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/${table}?select=id${filter ? `&${filter}` : ''}`,
     {
       method: 'HEAD',
       headers: {
-        ...(await supabaseHeaders()),
+        ...supabaseHeaders(accessToken),
         Prefer: 'count=exact',
         Range: '0-0',
       },
@@ -86,11 +81,12 @@ async function countRows(table: LoopTableName | 'loop_proposals', filter = ''): 
 
 async function safeCountRows(
   table: LoopTableName | 'loop_proposals',
+  accessToken: string,
   errors: string[],
   filter = '',
 ): Promise<number | null> {
   try {
-    return await countRows(table, filter)
+    return await countRows(table, accessToken, filter)
   } catch (error) {
     errors.push(`${table}${filter ? ` (${filter})` : ''}: ${error instanceof Error ? error.message : String(error)}`)
     return null
@@ -237,9 +233,24 @@ export async function fetchLoopState(): Promise<LiveResult> {
     }
   }
 
+  let accessToken: string | undefined
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    if (!error) accessToken = data.session?.access_token
+  } catch {
+    // Treat auth storage/refresh failures the same as a missing session.
+  }
+  if (!accessToken) {
+    return {
+      state: emptyLoopState,
+      live: false,
+      health: emptyDataHealth('Authenticated Supabase session required'),
+    }
+  }
+
   const errors: string[] = []
   const countPairs = await Promise.all(
-    requiredLoopTables.map(async (table) => [table, await safeCountRows(table, errors)] as const),
+    requiredLoopTables.map(async (table) => [table, await safeCountRows(table, accessToken, errors)] as const),
   )
   const tableCounts = Object.fromEntries(countPairs) as Record<LoopTableName, number | null>
   const finishedCountsAt = performance.now()
@@ -257,37 +268,41 @@ export async function fetchLoopState(): Promise<LiveResult> {
 
   const [stateRows, iterRows, scoreRows, proposalRows, failureRows, lessonRows, evalRows, activatedRaw, rolledBackRaw, allLessonRows, activationRows, costRows] =
     await Promise.all([
-      safeRest<StateRow[]>('loop_state?id=eq.main', [], errors, 'loop_state'),
-      safeRest<IterationRow[]>('loop_iterations?order=ts.desc&limit=8', [], errors, 'loop_iterations'),
-      safeRest<ScoreRow[]>('loop_scores?order=created_at.desc&limit=60', [], errors, 'loop_scores'),
-      safeRest<ProposalRow[]>('loop_proposals?order=created_at.desc&limit=8', [], errors, 'loop_proposals'),
-      safeRest<FailureRow[]>('loop_failure_patterns?order=frequency.desc&limit=8', [], errors, 'loop_failure_patterns'),
+      safeRest<StateRow[]>('loop_state?id=eq.main', [], errors, 'loop_state', accessToken),
+      safeRest<IterationRow[]>('loop_iterations?order=ts.desc&limit=8', [], errors, 'loop_iterations', accessToken),
+      safeRest<ScoreRow[]>('loop_scores?order=created_at.desc&limit=60', [], errors, 'loop_scores', accessToken),
+      safeRest<ProposalRow[]>('loop_proposals?order=created_at.desc&limit=8', [], errors, 'loop_proposals', accessToken),
+      safeRest<FailureRow[]>('loop_failure_patterns?order=frequency.desc&limit=8', [], errors, 'loop_failure_patterns', accessToken),
       safeRest<LessonRow[]>(
         'loop_lessons?lesson_type=eq.optimization&applied=eq.false&order=confidence.desc&limit=6',
         [],
         errors,
         'loop_lessons',
+        accessToken,
       ),
-      safeRest<EvalRow[]>('loop_eval_results?order=created_at.desc&limit=32', [], errors, 'loop_eval_results'),
-      safeCountRows('loop_proposals', errors, 'status=eq.active'),
-      safeCountRows('loop_proposals', errors, 'status=eq.rolled_back'),
+      safeRest<EvalRow[]>('loop_eval_results?order=created_at.desc&limit=32', [], errors, 'loop_eval_results', accessToken),
+      safeCountRows('loop_proposals', accessToken, errors, 'status=eq.active'),
+      safeCountRows('loop_proposals', accessToken, errors, 'status=eq.rolled_back'),
       safeRest<AllLessonRow[]>(
         'loop_lessons?select=lesson_id,lesson_type,content,confidence,applied,created_at&order=created_at.desc&limit=200',
         [],
         errors,
         'loop_lessons_all',
+        accessToken,
       ),
       safeRest<ActivationRow[]>(
         'loop_activations?select=id,proposal_id,action,reason,created_at&order=created_at.desc&limit=40',
         [],
         errors,
         'loop_activations',
+        accessToken,
       ),
       safeRest<CostRow[]>(
         'loop_cost_events?select=model,provider,input_tokens,output_tokens,estimated_cost_usd&order=created_at.desc&limit=500',
         [],
         errors,
         'loop_cost_events',
+        accessToken,
       ),
     ])
   const activated = activatedRaw ?? 0
@@ -300,8 +315,8 @@ export async function fetchLoopState(): Promise<LiveResult> {
   const idFilter = visibleIds.map((id) => `"${id}"`).join(',')
   const [lessonRefs, proposalRefs] = visibleIds.length
     ? await Promise.all([
-        safeRest<LessonRefRow[]>(`loop_lessons?select=source_task_id&source_task_id=in.(${idFilter})`, [], errors, 'loop_lesson_refs'),
-        safeRest<ProposalRefRow[]>('loop_proposals?select=proposal_id,source_lessons&limit=200', [], errors, 'loop_proposal_refs'),
+        safeRest<LessonRefRow[]>(`loop_lessons?select=source_task_id&source_task_id=in.(${idFilter})`, [], errors, 'loop_lesson_refs', accessToken),
+        safeRest<ProposalRefRow[]>('loop_proposals?select=proposal_id,source_lessons&limit=200', [], errors, 'loop_proposal_refs', accessToken),
       ])
     : [[], []]
   const lessonCount = new Map<string, number>()

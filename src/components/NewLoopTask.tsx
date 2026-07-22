@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LoopTaskDestination, LoopTaskHandoff, LoopTaskKind, LoopTaskPriority, LoopTaskProcessStep, LoopTaskStatus } from '../types.ts'
 import { fetchTaskQueue } from '../data/taskQueue.ts'
-import { supabase } from '../lib/supabase.ts'
+import { supabase, supabaseAuthHeaders } from '../lib/supabase.ts'
 import { useAuth } from '../contexts/AuthContext.tsx'
 
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
@@ -190,9 +190,8 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
     let interval: ReturnType<typeof setInterval> | null = null
     const poll = async () => {
       try {
-        const token = getAccessToken()
         const response = await fetch(`/api/loop-task?taskId=${encodeURIComponent(task.task_id)}`, {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
+          headers: await supabaseAuthHeaders(),
         })
         if (!response.ok) return
         const json = await response.json() as { tasks?: LoopTaskHandoff[]; events?: TaskEvent[] }
@@ -215,7 +214,7 @@ function TaskDetailDrawer({ task, onClose }: { task: LoopTaskHandoff; onClose: (
     const active = ['queued', 'delivered', 'accepted', 'running', 'needs_review'].includes(task.status)
     interval = active ? setInterval(() => void poll(), 6_000) : null
     return () => { cancelled = true; if (interval) clearInterval(interval) }
-  }, [task.task_id, task.status, getAccessToken])
+  }, [task.task_id, task.status])
 
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null
@@ -410,9 +409,8 @@ export function NewLoopTask() {
     let cancelled = false
     async function loadStatus() {
       try {
-        const token = getAccessToken()
         const response = await fetch('/api/loop-task?includeTasks=true', {
-          headers: token ? { authorization: `Bearer ${token}` } : {},
+          headers: await supabaseAuthHeaders(),
         })
         const json = (await response.json()) as StatusResponse
         if (!cancelled && json.deliveryReadiness) setReadiness(json.deliveryReadiness)
@@ -432,7 +430,7 @@ export function NewLoopTask() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'loop_task_events' }, () => { void loadQueue() })
       .subscribe()
     return () => { cancelled = true; mountedRef.current = false; clearInterval(interval); void supabase.removeChannel(channel) }
-  }, [getAccessToken])
+  }, [])
 
   const selectTemplate = (template: typeof templates[number]) => {
     setTask(template.text)

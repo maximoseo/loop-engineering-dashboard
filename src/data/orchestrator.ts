@@ -25,13 +25,7 @@ export interface OrchestratorState {
   message?: string
 }
 
-import { supabase } from '../lib/supabase.ts'
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
-  return token ? { authorization: `Bearer ${token}` } : {}
-}
+import { supabaseAuthHeaders } from '../lib/supabase.ts'
 
 export interface CreateRunInput {
   name: string
@@ -44,7 +38,7 @@ export interface CreateRunInput {
 }
 
 export async function fetchOrchestratorState(): Promise<OrchestratorState> {
-  const response = await fetch('/api/orchestrator')
+  const response = await fetch('/api/orchestrator', { headers: await supabaseAuthHeaders() })
   if (!response.ok) throw new Error(`Orchestrator status failed: ${response.status}`)
   return response.json()
 }
@@ -52,7 +46,7 @@ export async function fetchOrchestratorState(): Promise<OrchestratorState> {
 export async function createOrchestratorRun(input: CreateRunInput): Promise<OrchestratorState & { project: OrchestratorProject; run: OrchestratorRun; assignments: AgentAssignment[] }> {
   const response = await fetch('/api/orchestrator', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    headers: { 'content-type': 'application/json', ...(await supabaseAuthHeaders()) },
     body: JSON.stringify({ action: 'createRun', ...input }),
   })
   const payload = await response.json()
@@ -63,7 +57,7 @@ export async function createOrchestratorRun(input: CreateRunInput): Promise<Orch
 export async function requestApproval(runId: string, actionType: string, reason: string, riskLevel: RunApproval['risk_level'] = 'medium') {
   const response = await fetch('/api/orchestrator', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(await authHeaders()) },
+    headers: { 'content-type': 'application/json', ...(await supabaseAuthHeaders()) },
     body: JSON.stringify({ action: 'createApproval', runId, actionType, reason, riskLevel }),
   })
   const payload = await response.json()

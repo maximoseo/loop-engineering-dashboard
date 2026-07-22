@@ -1,10 +1,11 @@
+import { allowlistedEmail, authenticateSupabaseUser } from './_auth.js'
+import { LoopTaskCreateSchema, validate } from './schemas.ts'
+import { log } from './logger.ts'
+
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
 type Destination = 'auto' | 'telegram' | 'worker-webhook'
 type TaskStatus = 'queued' | 'delivered' | 'accepted' | 'running' | 'needs_review' | 'done' | 'failed' | 'blocked_config' | 'archived'
 type ResolvedDestination = 'pending' | 'telegram' | 'worker-webhook' | 'blocked' | 'failed'
-import { LoopTaskCreateSchema, validate } from './schemas.ts'
-import { log } from './logger.ts'
-
 
 type VercelRequest = {
   method?: string
@@ -73,9 +74,12 @@ interface StoredTask {
   error: string | null
 }
 
-
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
+
+function operatorEmails() {
+  return process.env.LOOP_OPERATOR_EMAILS
+}
 
 function deliveryReadiness() {
   const publicDeliveryEnabled = process.env.LOOP_TASK_PUBLIC_ENABLED === 'true'
@@ -108,7 +112,6 @@ function taskId() {
   const suffix = Math.random().toString(36).slice(2, 8)
   return `loop-task-${Date.now()}-${suffix}`
 }
-
 
 function queryValue(req: VercelRequest, key: string): string | undefined {
   const value = req.query?.[key]
@@ -308,46 +311,26 @@ async function kickWorker(req: VercelRequest) {
   } catch { /* handed off (or cron will pick it up) */ }
 }
 
-// Verify a Supabase session token against the Auth API. Returns the user's
-// identity, or null when the token is missing/invalid/expired.
-async function verifySession(token: string): Promise<{ email?: string } | null> {
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
-  if (!token || !supabaseUrl) return null
-  try {
-    const r = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: { apikey: process.env.VITE_SUPABASE_ANON_KEY || '', authorization: `Bearer ${token}` },
-    })
-    if (!r.ok) return null
-    return await r.json() as { email?: string }
-  } catch { return null }
-}
-
-function bearerToken(req: VercelRequest): string {
-  const authHeader = Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : req.headers.authorization
-  return (authHeader || '').replace('Bearer ', '')
-}
-
-type GateResult = { ok: true; email?: string } | { ok: false; status: number; message: string }
-
-// Role gate: which callers may read/submit tasks. Fail-closed — every caller must
-// present a valid Supabase session, and an empty/unset LOOP_OPERATOR_EMAILS
-// allowlist denies everyone (no operators configured means no access).
-async function operatorGate(req: VercelRequest): Promise<GateResult> {
-  const token = bearerToken(req)
-  if (!token) return { ok: false, status: 401, message: 'Authentication required. Provide a Supabase session token.' }
-  const session = await verifySession(token)
-  if (!session) return { ok: false, status: 401, message: 'Invalid or expired session.' }
-  const allow = (process.env.LOOP_OPERATOR_EMAILS || '')
-    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-  if (allow.length === 0) return { ok: false, status: 403, message: 'No operators configured.' }
-  if (!session.email || !allow.includes(session.email.toLowerCase())) {
-    return { ok: false, status: 403, message: 'You are not authorized to submit tasks (operator access required).' }
-  }
-  return { ok: true, email: session.email }
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
+
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    res.status(405).json({ ok: false, message: 'Use GET for status or POST to send a task.' })
+    return
+  }
+
+  const user = await authenticateSupabaseUser(req)
+  if (!user) {
+    res.status(401).json({ ok: false, message: 'Authentication required.' })
+    return
+  }
+
+  // Task readiness, queue details, and submission are operational data. Keep
+  // both reads and writes scoped to the configured operators; empty fails closed.
+  if (!allowlistedEmail(user, operatorEmails())) {
+    res.status(403).json({ ok: false, message: 'Operator access is not configured for this account.' })
+    return
+  }
 
   // Rate limiting for POST (task submission)
   if (req.method === 'POST') {
@@ -367,62 +350,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     const taskIdParam = queryValue(req, 'taskId')
-    const includeTasks = queryValue(req, 'includeTasks') === 'true'
-    // Task data (queue list or a single task's detail) is operator-only; the bare
-    // health/readiness probe stays public so uptime checks keep working.
-    if (taskIdParam || includeTasks) {
-      const gate = await operatorGate(req)
-      if (!gate.ok) {
-        res.status(gate.status).json({ ok: false, message: gate.message, deliveryReadiness: readiness })
-        return
-      }
-      if (taskIdParam) {
-        const detail = await getTask(taskIdParam)
-        res.status(200).json({ ok: true, deliveryReadiness: readiness, ...detail })
-        return
-      }
-      const tasks = await listTasks()
-      res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks })
+    if (taskIdParam) {
+      const detail = await getTask(taskIdParam)
+      res.status(200).json({ ok: true, deliveryReadiness: readiness, ...detail })
       return
     }
-    res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks: [] })
-    return
-  }
-
-  if (req.method !== 'POST') {
-    res.status(405).json({ ok: false, message: 'Use GET for status or POST to send a task.', deliveryReadiness: readiness })
-    return
-  }
-
-  // Role gate (fail-closed): the caller must present a valid Supabase session
-  // whose email is on the LOOP_OPERATOR_EMAILS allowlist. An empty allowlist
-  // denies everyone, and a missing/invalid session is rejected with 401.
-  const gate = await operatorGate(req)
-  if (!gate.ok) {
-    res.status(gate.status).json({ ok: false, message: gate.message })
+    const includeTasks = queryValue(req, 'includeTasks') === 'true'
+    const tasks = includeTasks ? await listTasks() : []
+    res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks })
     return
   }
 
   const id = taskId()
-  const parsed = validate(LoopTaskCreateSchema, req.body)
+  let candidate = req.body
+  if (typeof candidate === 'string') {
+    try { candidate = JSON.parse(candidate) } catch { candidate = null }
+  }
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    const record = candidate as Record<string, unknown>
+    if (typeof record.task === 'string') candidate = { ...record, task: record.task.trim() }
+  }
+  const parsed = validate(LoopTaskCreateSchema, candidate)
   if (!parsed.success) {
     const process = processForInvalidInput()
     res.status(400).json({ ok: false, taskId: id, status: 'failed', destination: 'auto', deliveryReadiness: readiness, message: parsed.error, process })
     return
   }
-  const d = parsed.data
-  const task = d.task.trim()
-  const kind = d.kind ?? 'agent-run'
-  const priority = d.priority ?? 'normal'
-  const destination = (d.destination ?? 'auto') as Destination
-  const expectedResult = (d.expectedResult ?? '').trim()
-  const contextUrl = (d.contextUrl ?? '').trim()
-  const bot = (d.bot ?? '').trim()
-  const model = (d.model ?? '').trim()
-  const effort = d.effort ?? ''
-  const parentTaskId = (d.parentTaskId ?? '').trim()
+  const data = parsed.data
+  const task = data.task.trim()
+  const kind = data.kind ?? 'agent-run'
+  const priority = data.priority ?? 'normal'
+  const destination = (data.destination ?? 'auto') as Destination
+  const expectedResult = (data.expectedResult ?? '').trim()
+  const contextUrl = (data.contextUrl ?? '').trim()
+  const bot = (data.bot ?? '').trim()
+  const model = (data.model ?? '').trim()
+  const effort = data.effort ?? ''
+  const parentTaskId = (data.parentTaskId ?? '').trim()
 
-  log.info('task_received', { taskId: id, kind, priority, destination, hasContext: !!contextUrl })
+  log.info('task_received', { taskId: id, kind, priority, destination, hasContext: Boolean(contextUrl) })
+
   let status: TaskStatus = readiness.publicDeliveryEnabled ? 'queued' : 'blocked_config'
   let resolved_destination: ResolvedDestination = 'pending'
   let message = readiness.publicDeliveryEnabled ? 'Task queued for delivery.' : 'Backend intake is installed, but public task delivery is disabled.'
@@ -442,7 +409,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       metadata: { expectedResult, contextUrl, bot, model, effort, ...(parentTaskId ? { parent_task_id: parentTaskId } : {}) },
     })
   } catch (error) {
-    res.status(500).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: error instanceof Error ? error.message : String(error), process })
+    console.error('Task persistence failed', error)
+    res.status(500).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: 'Unable to save the task.', process })
     return
   }
 
@@ -488,19 +456,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await insertEvent(id, 'delivery_blocked', message, { reason: 'missing_channel' })
     res.status(202).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
   } catch (error) {
+    console.error('Task delivery failed', error)
+    log.error('delivery_failed', { taskId: id, destination, error: error instanceof Error ? error.message : String(error) })
     status = 'failed'
     resolved_destination = 'failed'
-    message = error instanceof Error ? error.message : String(error)
+    message = 'Task delivery failed before the worker accepted it.'
     process = [
       step('Capture request', 'done', 'Request saved to the persistent task queue.'),
       step('Validate scope', 'done', 'Payload is valid and scoped.'),
       step('Route to bot / worker', 'error', message),
       step('Run / wait for agent', 'blocked', 'Delivery failed before the worker accepted the task.'),
-      step('Verify & report back', 'blocked', 'Check provider logs and env.'),
+      step('Verify & report back', 'blocked', 'Check server logs and delivery configuration.'),
     ]
-    await updateTask(id, { status, resolved_destination, delivery_message: message, process, error: message })
-    log.error('delivery_failed', { taskId: id, destination, error: message })
-    await insertEvent(id, 'delivery_failed', message, { destination })
+    try {
+      await updateTask(id, { status, resolved_destination, delivery_message: message, process, error: message })
+      await insertEvent(id, 'delivery_failed', message, { destination })
+    } catch (persistenceError) {
+      console.error('Unable to persist task delivery failure', persistenceError)
+    }
     res.status(502).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
   }
 }
