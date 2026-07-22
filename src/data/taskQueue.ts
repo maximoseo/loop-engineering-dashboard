@@ -1,5 +1,5 @@
 import type { LoopTaskEvent, LoopTaskHandoff } from '../types.ts'
-import { getAccessToken } from '../lib/supabase.ts'
+import { supabaseAuthHeaders } from '../lib/supabase.ts'
 
 export interface TaskQueueResponse {
   ok: boolean
@@ -10,10 +10,7 @@ export interface TaskQueueResponse {
 
 export async function fetchTaskQueue(taskId?: string): Promise<TaskQueueResponse> {
   const path = taskId ? `/api/loop-task?taskId=${encodeURIComponent(taskId)}` : '/api/loop-task?includeTasks=true'
-  const token = await getAccessToken()
-  const response = await fetch(path, {
-    headers: token ? { authorization: `Bearer ${token}` } : {},
-  })
+  const response = await fetch(path, { headers: await supabaseAuthHeaders() })
   const json = (await response.json()) as TaskQueueResponse
   if (!response.ok || !json.ok) {
     throw new Error(json.message || `Task queue HTTP ${response.status}`)

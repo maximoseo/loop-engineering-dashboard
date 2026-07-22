@@ -1,3 +1,6 @@
+import { allowlistedEmail, authenticateSupabaseUser, workerTokenAuthorized, type AuthenticatedUser } from './_auth.js'
+import { log } from './logger.ts'
+
 type VercelRequest = {
   method?: string
   body?: unknown
@@ -14,14 +17,8 @@ type VercelResponse = {
 type OrchestrationMode = 'lead_agent' | 'parallel_specialists' | 'debate' | 'pipeline' | 'swarm_verify'
 type AssignmentStatus = 'queued' | 'leased' | 'running' | 'blocked' | 'needs_review' | 'done' | 'failed' | 'cancelled'
 
-// Server-only env — no VITE_ fallbacks. The VITE_ vars are bundled into the
-// browser build, so relying on them server-side both leaks config intent and
-// silently "works" in dev while being unset in production.
-import { log } from './logger.ts'
-
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
 const WORKER_TOKEN = process.env.ORCHESTRATOR_WORKER_TOKEN
 
 function id(prefix: string) {
@@ -40,32 +37,8 @@ function q(req: VercelRequest, key: string): string | undefined {
   return Array.isArray(value) ? value[0] : value
 }
 
-function header(req: VercelRequest, key: string) {
-  const found = req.headers[key] || req.headers[key.toLowerCase()]
-  return Array.isArray(found) ? found[0] : found
-}
-
 function workerAuthorized(req: VercelRequest) {
-  if (!WORKER_TOKEN) return false
-  const auth = header(req, 'authorization')
-  const token = header(req, 'x-worker-token')
-  return auth === `Bearer ${WORKER_TOKEN}` || token === WORKER_TOKEN
-}
-
-// Verifies a Supabase user JWT (sent by the signed-in dashboard) against the
-// Auth API. Used to gate operator mutations for authenticated dashboard users
-// without exposing a static secret in the browser bundle.
-async function userAuthorized(req: VercelRequest) {
-  const auth = header(req, 'authorization')
-  if (!auth || !auth.startsWith('Bearer ') || !SUPABASE_URL || !SUPABASE_ANON_KEY) return false
-  try {
-    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      headers: { apikey: SUPABASE_ANON_KEY, authorization: auth },
-    })
-    return r.ok
-  } catch {
-    return false
-  }
+  return workerTokenAuthorized(req, WORKER_TOKEN)
 }
 
 function supabaseHeaders(prefer?: string) {
@@ -251,16 +224,23 @@ async function reconcileRun(run_id: string) {
   await event(run_id, 'run_reconciled', `Run status is now ${runStatus}.`, { statuses })
 }
 
-async function approve(body: Record<string, unknown>, status: 'approved' | 'rejected') {
+async function approve(body: Record<string, unknown>, status: 'approved' | 'rejected', actor: AuthenticatedUser) {
   const approval_id = String(body.approvalId || '')
   if (!approval_id) throw new Error('approvalId required')
+  const approvedBy = actor.email || actor.id
   const [approval] = await patch('loop_run_approvals', `approval_id=eq.${encodeURIComponent(approval_id)}`, {
     status,
-    approved_by: 'dashboard',
+    approved_by: approvedBy,
     reason: body.reason || null,
     resolved_at: new Date().toISOString(),
   }) as Array<Record<string, unknown>>
-  await event(String(approval.run_id), `approval_${status}`, `Approval ${status}: ${approval.action_type}`, { approval_id, reason: body.reason || null }, approval.assignment_id ? String(approval.assignment_id) : undefined)
+  await event(
+    String(approval.run_id),
+    `approval_${status}`,
+    `Approval ${status}: ${approval.action_type}`,
+    { approval_id, reason: body.reason || null, actor_user_id: actor.id, actor_email: actor.email || null },
+    approval.assignment_id ? String(approval.assignment_id) : undefined,
+  )
   return { approval }
 }
 
@@ -282,19 +262,25 @@ async function createApproval(body: Record<string, unknown>) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('content-type', 'application/json; charset=utf-8')
-
-  // Fail fast (and loud) when the server is misconfigured rather than throwing
-  // deep inside a Supabase call with a confusing 500.
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    log.error('orchestrator_misconfigured', { hasUrl: !!SUPABASE_URL, hasKey: !!SUPABASE_SERVICE_ROLE_KEY })
-    res.status(503).json({ ok: false, message: 'Orchestrator is not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required).' })
-    return
-  }
-
   log.info('orchestrator_request', { method: req.method })
-
   try {
     if (req.method === 'GET') {
+      if (!workerAuthorized(req)) {
+        const user = await authenticateSupabaseUser(req)
+        if (!user) {
+          res.status(401).json({ ok: false, message: 'Authentication required.' })
+          return
+        }
+        if (!allowlistedEmail(user, process.env.LOOP_OPERATOR_EMAILS)) {
+          res.status(403).json({ ok: false, message: 'Operator access is not configured for this account.' })
+          return
+        }
+      }
+      if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+        log.error('orchestrator_misconfigured', { hasUrl: Boolean(SUPABASE_URL), hasKey: Boolean(SUPABASE_SERVICE_ROLE_KEY) })
+        res.status(503).json({ ok: false, message: 'Orchestrator is not configured.' })
+        return
+      }
       const runId = q(req, 'runId')
       if (runId) {
         const [runs, assignments, events, artifacts, approvals] = await Promise.all([
@@ -304,7 +290,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           sb(`loop_run_artifacts?select=*&run_id=eq.${encodeURIComponent(runId)}&order=created_at.desc`),
           sb(`loop_run_approvals?select=*&run_id=eq.${encodeURIComponent(runId)}&order=created_at.desc`),
         ])
-        res.status(200).json({ ok: true, run: Array.isArray(runs) ? runs[0] : null, assignments, events, artifacts, approvals })
+        res.status(200).json({ ok: true, run: Array.isArray(runs) ? (runs[0] || null) : null, assignments, events, artifacts, approvals })
         return
       }
       res.status(200).json({ ok: true, ...(await listState()), workerTokenConfigured: Boolean(WORKER_TOKEN) })
@@ -324,10 +310,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return
     }
 
-    // Operator mutations require either the worker token or a signed-in dashboard user.
+    // Operator mutations always require an allowlisted human session. Worker
+    // credentials are deliberately not accepted here, so workers cannot create
+    // runs or resolve their own approval gates. An empty allowlist fails closed.
     const operatorActions = new Set(['createRun','createApproval','approve','reject'])
-    if (operatorActions.has(action) && !workerAuthorized(req) && !(await userAuthorized(req))) {
-      res.status(401).json({ ok: false, message: 'Sign in required to perform this action.' })
+    let operatorUser: AuthenticatedUser | null = null
+    if (operatorActions.has(action)) {
+      operatorUser = await authenticateSupabaseUser(req)
+      if (!operatorUser) {
+        res.status(401).json({ ok: false, message: 'Sign in required to perform this action.' })
+        return
+      }
+      if (!allowlistedEmail(operatorUser, process.env.LOOP_OPERATOR_EMAILS)) {
+        res.status(403).json({ ok: false, message: 'Operator access is not configured for this account.' })
+        return
+      }
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      log.error('orchestrator_misconfigured', { hasUrl: Boolean(SUPABASE_URL), hasKey: Boolean(SUPABASE_SERVICE_ROLE_KEY) })
+      res.status(503).json({ ok: false, message: 'Orchestrator is not configured.' })
       return
     }
 
@@ -339,10 +341,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     else if (action === 'needsReview') res.status(200).json({ ok: true, ...(await complete(body, 'needs_review')) })
     else if (action === 'blocked') res.status(200).json({ ok: true, ...(await complete(body, 'blocked')) })
     else if (action === 'createApproval') res.status(200).json({ ok: true, ...(await createApproval(body)) })
-    else if (action === 'approve') res.status(200).json({ ok: true, ...(await approve(body, 'approved')) })
-    else if (action === 'reject') res.status(200).json({ ok: true, ...(await approve(body, 'rejected')) })
+    else if (action === 'approve') res.status(200).json({ ok: true, ...(await approve(body, 'approved', operatorUser as AuthenticatedUser)) })
+    else if (action === 'reject') res.status(200).json({ ok: true, ...(await approve(body, 'rejected', operatorUser as AuthenticatedUser)) })
     else res.status(400).json({ ok: false, message: `Unknown action: ${action}` })
   } catch (error) {
-    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })
+    console.error('Orchestrator request failed', error)
+    log.error('orchestrator_request_failed', { error: error instanceof Error ? error.message : String(error) })
+    res.status(500).json({ ok: false, message: 'The orchestrator request could not be completed.' })
   }
 }

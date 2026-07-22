@@ -4,7 +4,6 @@ import {
   OrchestratorProjectSchema,
   OrchestratorRunSchema,
   OrchestratorAssignmentSchema,
-  OrchestratorEventSchema,
   ProposalApproveSchema,
   WorkerClaimSchema,
   validate,

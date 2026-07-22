@@ -1,3 +1,6 @@
+import { allowlistedEmail, authenticateSupabaseUser, type AuthenticatedUser } from './_auth.js'
+import { ProposalApproveSchema, validate, type ProposalApprove } from './schemas.ts'
+
 /**
  * Proposal approval API — authenticated route for dashboard-based approval.
  * Requires: Authorization header with Supabase session token.
@@ -20,46 +23,14 @@ type VercelResponse = {
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-import { ProposalApproveSchema, validate } from './schemas.ts'
-import type { ProposalApprove } from './schemas.ts'
-
-async function verifySession(token: string): Promise<{ userId: string; email?: string } | null> {
-  if (!SUPABASE_URL) return null
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      apikey: process.env.VITE_SUPABASE_ANON_KEY || '',
-      authorization: `Bearer ${token}`,
-    },
-  })
-  if (!response.ok) return null
-  const user = await response.json() as { id: string; email?: string }
-  return { userId: user.id, email: user.email }
-}
-
-async function updateProposal(proposalId: string, status: string, reason: string) {
-  const response = await fetch(
-    `${SUPABASE_URL}/rest/v1/loop_proposals?proposal_id=eq.${encodeURIComponent(proposalId)}`,
-    {
-      method: 'PATCH',
-      headers: {
-        apikey: SUPABASE_SERVICE_ROLE_KEY as string,
-        authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        'content-type': 'application/json',
-        prefer: 'return=representation',
-      },
-      body: JSON.stringify({
-        status,
-        eval_summary: { approved_by: 'dashboard', reason, timestamp: new Date().toISOString() },
-        ...(status === 'active' ? { activated_at: new Date().toISOString() } : {}),
-        ...(status === 'rejected' ? { rolled_back_at: new Date().toISOString() } : {}),
-      }),
-    }
-  )
-  return response.ok
-}
-
-async function insertActivation(proposalId: string, action: string, reason: string) {
-  await fetch(`${SUPABASE_URL}/rest/v1/loop_activations`, {
+async function applyProposalDecision(
+  proposalId: string,
+  status: string,
+  action: string,
+  reason: string,
+  actor: AuthenticatedUser,
+): Promise<'updated' | 'not_found' | 'failed'> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/apply_loop_proposal_decision`, {
     method: 'POST',
     headers: {
       apikey: SUPABASE_SERVICE_ROLE_KEY as string,
@@ -67,16 +38,24 @@ async function insertActivation(proposalId: string, action: string, reason: stri
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      proposal_id: proposalId,
-      action,
-      reason,
-      created_at: new Date().toISOString(),
+      p_proposal_id: proposalId,
+      p_status: status,
+      p_action: action,
+      p_reason: reason,
+      p_actor_user_id: actor.id,
+      p_actor_email: actor.email || null,
     }),
   })
+  if (!response.ok) return 'failed'
+  return (await response.json()) === true ? 'updated' : 'not_found'
 }
 
 function asBody(body: unknown): ProposalApprove | null {
-  const result = validate(ProposalApproveSchema, typeof body === 'string' ? JSON.parse(body) : body)
+  let candidate = body
+  if (typeof candidate === 'string') {
+    try { candidate = JSON.parse(candidate) } catch { return null }
+  }
+  const result = validate(ProposalApproveSchema, candidate)
   return result.success ? result.data : null
 }
 
@@ -93,51 +72,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  // Verify auth
-  const authHeader = req.headers.authorization
-  const token = Array.isArray(authHeader) ? authHeader[0] : authHeader?.replace('Bearer ', '')
-  if (!token) {
-    res.status(401).json({ ok: false, message: 'Authentication required. Provide a Supabase session token.' })
-    return
-  }
-
-  const session = await verifySession(token)
+  const session = await authenticateSupabaseUser(req)
   if (!session) {
     res.status(401).json({ ok: false, message: 'Invalid or expired session.' })
     return
   }
 
-  // Role gate (fail-closed): an empty LOOP_APPROVER_EMAILS allowlist denies
-  // everyone — approvals must be explicitly granted to named operators.
-  const approvers = (process.env.LOOP_APPROVER_EMAILS || '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-  if (approvers.length === 0) {
-    res.status(403).json({ ok: false, message: 'No approvers configured.' })
-    return
-  }
-  if (!session.email || !approvers.includes(session.email.toLowerCase())) {
-    res.status(403).json({ ok: false, message: 'You are not authorized to approve proposals.' })
+  if (!allowlistedEmail(session, process.env.LOOP_APPROVER_EMAILS)) {
+    res.status(403).json({ ok: false, message: 'Proposal approval is not configured for this account.' })
     return
   }
 
   const data = asBody(req.body)
-  if (!data) {
-    res.status(400).json({ ok: false, message: 'Invalid request body. proposalId and action are required.' })
+  if (!data || !data.proposalId) {
+    res.status(400).json({ ok: false, message: 'proposalId and action are required.' })
     return
   }
 
   const newStatus = data.action === 'approved' ? 'active' : 'rejected'
 
   try {
-    const updated = await updateProposal(data.proposalId, newStatus, data.reason ?? '')
-    if (!updated) {
-      res.status(404).json({ ok: false, message: 'Proposal not found or update failed.' })
+    const result = await applyProposalDecision(data.proposalId, newStatus, data.action, data.reason ?? '', session)
+    if (result === 'not_found') {
+      res.status(404).json({ ok: false, message: 'Proposal not found.' })
       return
     }
-
-    await insertActivation(data.proposalId, data.action, data.reason ?? '')
+    if (result === 'failed') {
+      res.status(500).json({ ok: false, message: 'The proposal decision could not be recorded.' })
+      return
+    }
 
     res.status(200).json({
       ok: true,
@@ -147,9 +110,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: `Proposal ${data.proposalId} ${data.action}.`,
     })
   } catch (error) {
+    console.error('Proposal approval failed', error)
     res.status(500).json({
       ok: false,
-      message: error instanceof Error ? error.message : String(error),
+      message: 'The proposal approval could not be completed.',
     })
   }
 }
