@@ -4,6 +4,7 @@ import {
   OrchestratorProjectSchema,
   OrchestratorRunSchema,
   OrchestratorAssignmentSchema,
+  OrchestratorActionSchema,
   ProposalApproveSchema,
   WorkerClaimSchema,
   validate,
@@ -96,6 +97,31 @@ describe('OrchestratorAssignmentSchema', () => {
   it('rejects missing required fields', () => {
     const result = validate(OrchestratorAssignmentSchema, { runId: 'run-1' })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('OrchestratorActionSchema', () => {
+  it('accepts bounded worker events', () => {
+    expect(validate(OrchestratorActionSchema, {
+      action: 'workerEvent',
+      runId: 'run-1',
+      eventType: 'output',
+      message: 'Completed.',
+    }).success).toBe(true)
+  })
+
+  it('rejects oversized worker output and invalid operator budgets', () => {
+    expect(validate(OrchestratorActionSchema, {
+      action: 'workerEvent',
+      runId: 'run-1',
+      eventType: 'output',
+      message: 'x'.repeat(4001),
+    }).success).toBe(false)
+    expect(validate(OrchestratorActionSchema, {
+      action: 'createRun',
+      name: 'Run',
+      budget: { maxCostUsd: 1000 },
+    }).success).toBe(false)
   })
 })
 

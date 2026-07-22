@@ -1,5 +1,6 @@
 import { allowlistedEmail, authenticateSupabaseUser, workerTokenAuthorized, type AuthenticatedUser } from './_auth.js'
 import { log } from './logger.ts'
+import { OrchestratorActionSchema, validate } from './schemas.ts'
 
 type VercelRequest = {
   method?: string
@@ -25,11 +26,19 @@ function id(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function asBody(body: unknown): Record<string, unknown> {
-  if (typeof body === 'string') {
-    try { return JSON.parse(body) as Record<string, unknown> } catch { return {} }
+function parseBody(body: unknown): Record<string, unknown> | null {
+  let candidate = body
+  if (typeof candidate === 'string') {
+    if (candidate.length > 50_000) return null
+    try { candidate = JSON.parse(candidate) } catch { return null }
   }
-  return body && typeof body === 'object' ? body as Record<string, unknown> : {}
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
+  try {
+    if (JSON.stringify(candidate).length > 50_000) return null
+  } catch {
+    return null
+  }
+  return candidate as Record<string, unknown>
 }
 
 function q(req: VercelRequest, key: string): string | undefined {
@@ -302,9 +311,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return
     }
 
-    const body = asBody(req.body)
-    const action = String(body.action || 'createRun')
-    const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked','heartbeat'])
+    const rawBody = parseBody(req.body)
+    if (!rawBody || typeof rawBody.action !== 'string') {
+      res.status(400).json({ ok: false, message: 'Invalid orchestrator request.' })
+      return
+    }
+    const action = rawBody.action
+    const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked'])
     if (workerActions.has(action) && !workerAuthorized(req)) {
       res.status(401).json({ ok: false, message: 'Worker token required.' })
       return
@@ -326,6 +339,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return
       }
     }
+
+    const parsed = validate(OrchestratorActionSchema, rawBody)
+    if (!parsed.success) {
+      res.status(400).json({ ok: false, message: 'Invalid orchestrator request.' })
+      return
+    }
+    const body = parsed.data as unknown as Record<string, unknown>
 
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
       log.error('orchestrator_misconfigured', { hasUrl: Boolean(SUPABASE_URL), hasKey: Boolean(SUPABASE_SERVICE_ROLE_KEY) })

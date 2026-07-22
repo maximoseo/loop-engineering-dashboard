@@ -25,26 +25,36 @@ grant execute on function public.loop_dashboard_authorized() to authenticated;
 -- the service role after authenticating and allowlisting the approver.
 create or replace function public.apply_loop_proposal_decision(
   p_proposal_id text,
-  p_status text,
-  p_action text,
+  p_decision text,
   p_reason text,
   p_actor_user_id uuid,
   p_actor_email text
 )
-returns boolean
+returns text
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
   decision_at timestamptz := clock_timestamp();
+  next_status text;
+  audit_action text;
 begin
-  if p_status not in ('active', 'rejected') or p_action not in ('approved', 'rejected') then
+  if p_decision = 'approved' then
+    next_status := 'active';
+    audit_action := 'approved';
+  elsif p_decision = 'rejected' then
+    next_status := 'rejected';
+    audit_action := 'rejected';
+  else
     raise exception 'Invalid proposal decision';
   end if;
 
+  -- The pending_approval predicate is the compare-and-set boundary. Under
+  -- concurrent decisions PostgreSQL rechecks it after the row lock is acquired,
+  -- so exactly one caller can update and emit an audit row.
   update public.loop_proposals
-  set status = p_status,
+  set status = next_status,
       eval_summary = jsonb_build_object(
         'approved_by', coalesce(p_actor_email, p_actor_user_id::text),
         'actor_user_id', p_actor_user_id,
@@ -52,29 +62,33 @@ begin
         'reason', left(coalesce(p_reason, ''), 500),
         'timestamp', decision_at
       ),
-      activated_at = case when p_status = 'active' then decision_at else activated_at end,
-      rolled_back_at = case when p_status = 'rejected' then decision_at else rolled_back_at end
-  where proposal_id = p_proposal_id;
+      activated_at = case when next_status = 'active' then decision_at else activated_at end,
+      rolled_back_at = case when next_status = 'rejected' then decision_at else rolled_back_at end
+  where proposal_id = p_proposal_id
+    and status = 'pending_approval';
 
   if not found then
-    return false;
+    if exists (select 1 from public.loop_proposals where proposal_id = p_proposal_id) then
+      return 'not_pending';
+    end if;
+    return 'not_found';
   end if;
 
   insert into public.loop_activations (proposal_id, action, reason, metadata, created_at)
   values (
     p_proposal_id,
-    p_action,
+    audit_action,
     left(coalesce(p_reason, ''), 500),
     jsonb_build_object('actor_user_id', p_actor_user_id, 'actor_email', p_actor_email),
     decision_at
   );
 
-  return true;
+  return 'applied';
 end;
 $$;
 
-revoke all on function public.apply_loop_proposal_decision(text, text, text, text, uuid, text) from public, anon, authenticated;
-grant execute on function public.apply_loop_proposal_decision(text, text, text, text, uuid, text) to service_role;
+revoke all on function public.apply_loop_proposal_decision(text, text, text, uuid, text) from public, anon, authenticated;
+grant execute on function public.apply_loop_proposal_decision(text, text, text, uuid, text) to service_role;
 
 -- Remove every legacy public-read policy created by the core, task, and
 -- orchestrator schema migrations.

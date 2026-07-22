@@ -25,11 +25,10 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 async function applyProposalDecision(
   proposalId: string,
-  status: string,
-  action: string,
+  decision: 'approved' | 'rejected',
   reason: string,
   actor: AuthenticatedUser,
-): Promise<'updated' | 'not_found' | 'failed'> {
+): Promise<'updated' | 'not_found' | 'not_pending' | 'failed'> {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/apply_loop_proposal_decision`, {
     method: 'POST',
     headers: {
@@ -39,15 +38,18 @@ async function applyProposalDecision(
     },
     body: JSON.stringify({
       p_proposal_id: proposalId,
-      p_status: status,
-      p_action: action,
+      p_decision: decision,
       p_reason: reason,
       p_actor_user_id: actor.id,
       p_actor_email: actor.email || null,
     }),
   })
   if (!response.ok) return 'failed'
-  return (await response.json()) === true ? 'updated' : 'not_found'
+  const result = await response.json()
+  if (result === 'applied') return 'updated'
+  if (result === 'not_found') return 'not_found'
+  if (result === 'not_pending') return 'not_pending'
+  return 'failed'
 }
 
 function asBody(body: unknown): ProposalApprove | null {
@@ -67,11 +69,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return
   }
 
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    res.status(500).json({ ok: false, message: 'Server is not configured for approvals.' })
-    return
-  }
-
   const session = await authenticateSupabaseUser(req)
   if (!session) {
     res.status(401).json({ ok: false, message: 'Invalid or expired session.' })
@@ -80,6 +77,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!allowlistedEmail(session, process.env.LOOP_APPROVER_EMAILS)) {
     res.status(403).json({ ok: false, message: 'Proposal approval is not configured for this account.' })
+    return
+  }
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    res.status(500).json({ ok: false, message: 'Server is not configured for approvals.' })
     return
   }
 
@@ -92,9 +94,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const newStatus = data.action === 'approved' ? 'active' : 'rejected'
 
   try {
-    const result = await applyProposalDecision(data.proposalId, newStatus, data.action, data.reason ?? '', session)
+    const result = await applyProposalDecision(data.proposalId, data.action, data.reason ?? '', session)
     if (result === 'not_found') {
       res.status(404).json({ ok: false, message: 'Proposal not found.' })
+      return
+    }
+    if (result === 'not_pending') {
+      res.status(409).json({ ok: false, message: 'Proposal is no longer pending approval.' })
       return
     }
     if (result === 'failed') {

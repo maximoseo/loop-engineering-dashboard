@@ -74,6 +74,57 @@ export const OrchestratorEventSchema = z.object({
 
 export type OrchestratorEvent = z.infer<typeof OrchestratorEventSchema>
 
+// ── orchestrator API actions ──────────────────────────────────
+
+const IdSchema = z.string().min(1).max(80)
+const ShortTextSchema = z.string().max(500)
+const MetadataSchema = z.record(z.string(), z.unknown())
+
+export const OrchestratorActionSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('createRun'),
+    name: z.string().min(1).max(120),
+    objective: z.string().max(4000).optional(),
+    mode: z.enum(['lead_agent', 'parallel_specialists', 'debate', 'pipeline', 'swarm_verify']).optional(),
+    constraints: z.array(z.string().max(200)).max(20).optional(),
+    successCriteria: z.array(z.string().max(200)).max(20).optional(),
+    contextUrl: z.string().max(1000).optional(),
+    budget: z.object({
+      maxParallelAgents: z.number().int().min(1).max(20).optional(),
+      maxRuntimeMinutes: z.number().int().min(1).max(480).optional(),
+      maxCostUsd: z.number().min(0).max(100).optional(),
+    }).optional(),
+  }),
+  z.object({ action: z.literal('lease'), workerId: IdSchema, agentIds: z.array(IdSchema).max(20).optional() }),
+  z.object({
+    action: z.literal('workerEvent'),
+    runId: IdSchema,
+    assignmentId: IdSchema.optional(),
+    agentId: IdSchema.optional(),
+    eventType: z.string().min(1).max(80),
+    message: z.string().max(4000).optional(),
+    metadata: MetadataSchema.optional(),
+  }),
+  z.object({
+    action: z.enum(['complete', 'fail', 'needsReview', 'blocked']),
+    assignmentId: IdSchema,
+    output: MetadataSchema.optional(),
+    summary: z.string().max(4000).optional(),
+    error: z.string().max(4000).optional(),
+  }),
+  z.object({
+    action: z.literal('createApproval'),
+    runId: IdSchema,
+    assignmentId: IdSchema.optional(),
+    riskLevel: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+    actionType: z.string().min(1).max(80).optional(),
+    reason: z.string().max(1000).optional(),
+  }),
+  z.object({ action: z.enum(['approve', 'reject']), approvalId: IdSchema, reason: ShortTextSchema.optional() }),
+])
+
+export type OrchestratorAction = z.infer<typeof OrchestratorActionSchema>
+
 // ── proposal-approve ──────────────────────────────────────────
 
 export const ProposalApproveSchema = z.object({

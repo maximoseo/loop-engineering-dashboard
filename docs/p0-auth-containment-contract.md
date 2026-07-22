@@ -17,14 +17,19 @@ Close unauthenticated operational reads and fail-open task/proposal authorizatio
 - No organization/workspace multi-tenancy in this change set.
 - No queue leasing/fencing rewrite.
 - No UI redesign or analytics optimization.
-- No automatic Supabase migration application.
-- No production merge from this branch.
+- No automatic Supabase migration application; apply the reviewed migration deliberately.
 
 ## Constraints
 - Keep the existing Vercel function shape.
 - Preserve worker-token paths and current API response contracts where compatible with secure denial.
 - Do not expose raw Supabase errors or secrets.
 - Keep diffs reviewable and rollbackable.
+
+## Deployment order
+1. Configure non-empty production Supabase and operator/approver environment values.
+2. Apply the forward-only containment migration while the already-session-aware dashboard remains deployed.
+3. Merge/deploy the API and client changes.
+4. Verify anonymous denial, allowlisted reads, worker routes, and proposal decision audit behavior.
 
 ## Production containment already applied
 `LOOP_TASK_PUBLIC_ENABLED=false` was set in Vercel Production and the current production artifact was redeployed. Live verification returned `publicDeliveryEnabled:false` and `defaultRoute:"blocked_config"`.

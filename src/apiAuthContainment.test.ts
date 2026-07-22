@@ -107,6 +107,28 @@ describe('P0 API auth containment', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('preserves authenticated worker reads without requiring an operator session', async () => {
+    process.env.SUPABASE_URL = 'https://project.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
+    process.env.ORCHESTRATOR_WORKER_TOKEN = 'test-worker-token-value'
+    const fetchMock = vi.fn()
+    for (let index = 0; index < 9; index += 1) {
+      fetchMock.mockResolvedValueOnce(new Response('[]', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    const { default: handler } = await import('../api/orchestrator.ts')
+    const { response, recorded } = responseRecorder()
+
+    await handler({ method: 'GET', headers: { 'x-worker-token': 'test-worker-token-value' } }, response)
+
+    expect(recorded.statusCode).toBe(200)
+    expect(recorded.body).toMatchObject({ ok: true, workerTokenConfigured: true })
+    expect(fetchMock).toHaveBeenCalledTimes(9)
+  })
+
   it('fails operational reads closed for authenticated users outside the operator allowlist', async () => {
     process.env.SUPABASE_URL = 'https://project.supabase.co'
     process.env.VITE_SUPABASE_ANON_KEY = 'anon-key'
@@ -178,6 +200,25 @@ describe('P0 API auth containment', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('rejects malformed worker payloads before any database mutation', async () => {
+    process.env.SUPABASE_URL = 'https://project.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
+    process.env.ORCHESTRATOR_WORKER_TOKEN = 'test-worker-token-value'
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { default: handler } = await import('../api/orchestrator.ts')
+    const { response, recorded } = responseRecorder()
+
+    await handler({
+      method: 'POST',
+      headers: { 'x-worker-token': 'test-worker-token-value' },
+      body: { action: 'workerEvent', runId: 'run-1', eventType: 'output', message: 'x'.repeat(4001) },
+    }, response)
+
+    expect(recorded.statusCode).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('does not let a worker token resolve a human approval gate', async () => {
     process.env.SUPABASE_URL = 'https://project.supabase.co'
     process.env.VITE_SUPABASE_ANON_KEY = 'anon-key'
@@ -228,6 +269,23 @@ describe('P0 API auth containment', () => {
     expect(recorded.statusCode).toBe(403)
     expect(recorded.body).toEqual({ ok: false, message: 'Operator access is not configured for this account.' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reveal proposal service configuration to anonymous callers', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { default: handler } = await import('../api/proposal-approve.ts')
+    const { response, recorded } = responseRecorder()
+
+    await handler({
+      method: 'POST',
+      headers: {},
+      body: { proposalId: 'proposal-1', action: 'approved' },
+    }, response)
+
+    expect(recorded.statusCode).toBe(401)
+    expect(recorded.body).toEqual({ ok: false, message: 'Invalid or expired session.' })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('fails proposal approval closed when the approver allowlist is empty', async () => {
@@ -291,7 +349,7 @@ describe('P0 API auth containment', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }))
-      .mockResolvedValueOnce(new Response('true', {
+      .mockResolvedValueOnce(new Response('"applied"', {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }))
@@ -311,12 +369,39 @@ describe('P0 API auth containment', () => {
     const decisionBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))
     expect(decisionBody).toMatchObject({
       p_proposal_id: 'proposal-1',
-      p_status: 'active',
-      p_action: 'approved',
+      p_decision: 'approved',
       p_reason: 'Evidence reviewed.',
       p_actor_user_id: 'approver-1',
       p_actor_email: 'approver@example.com',
     })
+  })
+
+  it('returns conflict when a proposal has already left pending approval', async () => {
+    process.env.SUPABASE_URL = 'https://project.supabase.co'
+    process.env.VITE_SUPABASE_ANON_KEY = 'anon-key'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
+    process.env.LOOP_APPROVER_EMAILS = 'approver@example.com'
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'approver-1', email: 'approver@example.com' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response('"not_pending"', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { default: handler } = await import('../api/proposal-approve.ts')
+    const { response, recorded } = responseRecorder()
+
+    await handler({
+      method: 'POST',
+      headers: { authorization: 'Bearer valid-session' },
+      body: { proposalId: 'proposal-1', action: 'rejected', reason: 'Too late.' },
+    }, response)
+
+    expect(recorded.statusCode).toBe(409)
+    expect(recorded.body).toEqual({ ok: false, message: 'Proposal is no longer pending approval.' })
   })
 })
 
@@ -356,6 +441,11 @@ describe('P0 containment migration', () => {
     expect(containment).toContain('drop policy if exists "loop_proposals_auth_update"')
     expect(containment).toContain('create or replace function public.loop_dashboard_authorized()')
     expect(containment).toContain('create or replace function public.apply_loop_proposal_decision(')
+    expect(containment).toContain("and status = 'pending_approval'")
+    expect(containment).toContain("if p_decision = 'approved' then")
+    expect(containment).toContain("return 'not_pending'")
+    expect(containment).not.toContain('p_status text')
+    expect(containment).not.toContain('p_action text')
     expect(containment).toContain("service@maximo-seo.com")
     expect(containment).not.toMatch(/to authenticated using \(true\)/)
   })
