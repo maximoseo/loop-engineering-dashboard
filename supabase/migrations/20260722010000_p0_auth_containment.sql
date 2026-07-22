@@ -192,7 +192,9 @@ drop policy if exists "loop_orchestrator_runs_auth_read" on public.loop_orchestr
 drop policy if exists "loop_agent_assignments_auth_read" on public.loop_agent_assignments;
 drop policy if exists "loop_agent_events_auth_read" on public.loop_agent_events;
 drop policy if exists "loop_run_artifacts_auth_read" on public.loop_run_artifacts;
+drop policy if exists "loop_run_evaluations_auth_read" on public.loop_run_evaluations;
 drop policy if exists "loop_run_approvals_auth_read" on public.loop_run_approvals;
+drop policy if exists "loop_resource_locks_auth_read" on public.loop_resource_locks;
 drop policy if exists "loop_cost_events_auth_read" on public.loop_cost_events;
 drop policy if exists "loop_worker_heartbeats_auth_read" on public.loop_worker_heartbeats;
 

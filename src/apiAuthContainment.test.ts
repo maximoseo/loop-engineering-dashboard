@@ -427,14 +427,23 @@ describe('P0 containment migration', () => {
       'supabase/migrations/20260708042000_loop_task_queue.sql',
       'supabase/migrations/20260708045000_multi_agent_orchestrator.sql',
     ].map((path) => readFileSync(resolve(root, path), 'utf8')).join('\n')
+    const broadAuthSql = readFileSync(
+      resolve(root, 'supabase/migrations/20260722000000_p0_drop_all_public_policies.sql'),
+      'utf8',
+    )
     const containment = readFileSync(
       resolve(root, 'supabase/migrations/20260722010000_p0_auth_containment.sql'),
       'utf8',
     )
     const policyNames = [...legacySql.matchAll(/create policy "([^"]+_public_read)"/g)].map((match) => match[1])
+    const broadAuthPolicyNames = [...broadAuthSql.matchAll(/create policy "([^"]+_auth_read)"/g)].map((match) => match[1])
 
     expect(policyNames.length).toBeGreaterThan(0)
     for (const policyName of policyNames) {
+      expect(containment).toContain(`drop policy if exists "${policyName}"`)
+    }
+    expect(broadAuthPolicyNames.length).toBeGreaterThan(0)
+    for (const policyName of broadAuthPolicyNames) {
       expect(containment).toContain(`drop policy if exists "${policyName}"`)
     }
     expect(containment).toMatch(/revoke all privileges[\s\S]+from anon;/)
