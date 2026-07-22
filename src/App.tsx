@@ -6,6 +6,8 @@ import Layout from './components/Layout.tsx'
 
 const LoginPage = lazy(() => import('./pages/LoginPage.tsx'))
 const SignupPage = lazy(() => import('./pages/SignupPage.tsx'))
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage.tsx'))
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage.tsx'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage.tsx'))
 const QueuePage = lazy(() => import('./pages/QueuePage.tsx'))
 const OrchestratorPage = lazy(() => import('./pages/OrchestratorPage.tsx'))
@@ -40,6 +42,8 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
 
               <Route
                 element={

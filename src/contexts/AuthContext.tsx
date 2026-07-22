@@ -38,8 +38,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         if (active) setInitializing(false)
       })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next)
+      // Redirect to reset-password page when arriving via a recovery email link
+      if (event === 'PASSWORD_RECOVERY') {
+        window.location.assign('/reset-password')
+      }
     })
     return () => {
       active = false

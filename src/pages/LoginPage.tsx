@@ -77,6 +77,9 @@ export default function LoginPage() {
           <p className="login-alt">
             No account? <Link to="/signup">Sign up</Link>
           </p>
+          <p className="login-alt">
+            <Link to="/forgot-password">Forgot password?</Link>
+          </p>
         </form>
 
         <div className="login-badges" aria-hidden="true">
