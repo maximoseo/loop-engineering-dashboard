@@ -1,6 +1,6 @@
 import { allowlistedEmail, authenticateSupabaseUser } from './_auth.js'
-import { LoopTaskCreateSchema, validate } from './schemas.ts'
-import { log } from './logger.ts'
+import { LoopTaskCreateSchema, validate } from './schemas.js'
+import { log } from './logger.js'
 
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
 type Destination = 'auto' | 'telegram' | 'worker-webhook'
