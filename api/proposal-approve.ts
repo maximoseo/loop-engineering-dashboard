@@ -1,5 +1,5 @@
 import { allowlistedEmail, authenticateSupabaseUser, type AuthenticatedUser } from './_auth.js'
-import { ProposalApproveSchema, validate, type ProposalApprove } from './schemas.ts'
+import { ProposalApproveSchema, validate, type ProposalApprove } from './schemas.js'
 
 /**
  * Proposal approval API — authenticated route for dashboard-based approval.

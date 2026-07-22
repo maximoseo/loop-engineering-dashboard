@@ -107,6 +107,19 @@ describe('P0 API auth containment', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('authenticates anonymous orchestrator mutations before returning schema feedback', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { default: handler } = await import('../api/orchestrator.ts')
+    const { response, recorded } = responseRecorder()
+
+    await handler({ method: 'POST', headers: {}, body: { action: 'heartbeat', agentId: 'x' } }, response)
+
+    expect(recorded.statusCode).toBe(401)
+    expect(recorded.body).toEqual({ ok: false, message: 'Authentication required.' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('preserves authenticated worker reads without requiring an operator session', async () => {
     process.env.SUPABASE_URL = 'https://project.supabase.co'
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
@@ -402,6 +415,19 @@ describe('P0 API auth containment', () => {
 
     expect(recorded.statusCode).toBe(409)
     expect(recorded.body).toEqual({ ok: false, message: 'Proposal is no longer pending approval.' })
+  })
+})
+
+describe('Vercel API module resolution', () => {
+  it('uses emitted .js paths for every shared runtime import', () => {
+    const root = resolve(import.meta.dirname, '..')
+    for (const file of ['loop-task.ts', 'orchestrator.ts', 'proposal-approve.ts']) {
+      const source = readFileSync(resolve(root, 'api', file), 'utf8')
+      expect(source).not.toMatch(/from ['"]\.\/[^'"]+\.ts['"]/)
+      for (const imported of source.matchAll(/from ['"](\.\/[^'"]+)['"]/g)) {
+        expect(imported[1]).toMatch(/\.js$/)
+      }
+    }
   })
 })
 

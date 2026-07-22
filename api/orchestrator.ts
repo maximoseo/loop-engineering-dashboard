@@ -1,6 +1,6 @@
 import { allowlistedEmail, authenticateSupabaseUser, workerTokenAuthorized, type AuthenticatedUser } from './_auth.js'
-import { log } from './logger.ts'
-import { OrchestratorActionSchema, validate } from './schemas.ts'
+import { log } from './logger.js'
+import { OrchestratorActionSchema, validate } from './schemas.js'
 
 type VercelRequest = {
   method?: string
@@ -312,12 +312,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const rawBody = parseBody(req.body)
-    if (!rawBody || typeof rawBody.action !== 'string') {
+    const action = rawBody && typeof rawBody.action === 'string' ? rawBody.action : null
+    const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked'])
+    const operatorActions = new Set(['createRun','createApproval','approve','reject'])
+
+    // Unknown/malformed actions still cross an authentication boundary before
+    // receiving validation feedback. This keeps every operational mutation
+    // fail-closed instead of exposing the action schema to anonymous callers.
+    if (!action || (!workerActions.has(action) && !operatorActions.has(action))) {
+      if (!workerAuthorized(req)) {
+        const user = await authenticateSupabaseUser(req)
+        if (!user) {
+          res.status(401).json({ ok: false, message: 'Authentication required.' })
+          return
+        }
+        if (!allowlistedEmail(user, process.env.LOOP_OPERATOR_EMAILS)) {
+          res.status(403).json({ ok: false, message: 'Operator access is not configured for this account.' })
+          return
+        }
+      }
       res.status(400).json({ ok: false, message: 'Invalid orchestrator request.' })
       return
     }
-    const action = rawBody.action
-    const workerActions = new Set(['lease','workerEvent','complete','fail','needsReview','blocked'])
+
     if (workerActions.has(action) && !workerAuthorized(req)) {
       res.status(401).json({ ok: false, message: 'Worker token required.' })
       return
@@ -326,7 +343,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Operator mutations always require an allowlisted human session. Worker
     // credentials are deliberately not accepted here, so workers cannot create
     // runs or resolve their own approval gates. An empty allowlist fails closed.
-    const operatorActions = new Set(['createRun','createApproval','approve','reject'])
     let operatorUser: AuthenticatedUser | null = null
     if (operatorActions.has(action)) {
       operatorUser = await authenticateSupabaseUser(req)
