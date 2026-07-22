@@ -2,19 +2,9 @@ type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
 type Destination = 'auto' | 'telegram' | 'worker-webhook'
 type TaskStatus = 'queued' | 'delivered' | 'accepted' | 'running' | 'needs_review' | 'done' | 'failed' | 'blocked_config' | 'archived'
 type ResolvedDestination = 'pending' | 'telegram' | 'worker-webhook' | 'blocked' | 'failed'
+import { LoopTaskCreateSchema, validate } from './schemas.ts'
+import { log } from './logger.ts'
 
-type RequestBody = {
-  task?: unknown
-  kind?: unknown
-  priority?: unknown
-  destination?: unknown
-  expectedResult?: unknown
-  contextUrl?: unknown
-  bot?: unknown
-  model?: unknown
-  effort?: unknown
-  parentTaskId?: unknown
-}
 
 type VercelRequest = {
   method?: string
@@ -83,9 +73,6 @@ interface StoredTask {
   error: string | null
 }
 
-const validKinds = new Set(['agent-run', 'project', 'debug', 'dashboard', 'proposal'])
-const validPriorities = new Set(['normal', 'high', 'urgent'])
-const validDestinations = new Set(['auto', 'telegram', 'worker-webhook'])
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
@@ -122,12 +109,6 @@ function taskId() {
   return `loop-task-${Date.now()}-${suffix}`
 }
 
-function asBody(body: unknown): RequestBody {
-  if (typeof body === 'string') {
-    try { return JSON.parse(body) as RequestBody } catch { return {} }
-  }
-  return body && typeof body === 'object' ? body as RequestBody : {}
-}
 
 function queryValue(req: VercelRequest, key: string): string | undefined {
   const value = req.query?.[key]
@@ -423,25 +404,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const id = taskId()
-  const body = asBody(req.body)
-  const task = typeof body.task === 'string' ? body.task.trim() : ''
-  const kind = typeof body.kind === 'string' && validKinds.has(body.kind) ? body.kind : 'agent-run'
-  const priority = typeof body.priority === 'string' && validPriorities.has(body.priority) ? body.priority : 'normal'
-  const destination = typeof body.destination === 'string' && validDestinations.has(body.destination) ? body.destination as Destination : 'auto'
-  const expectedResult = typeof body.expectedResult === 'string' ? body.expectedResult.trim().slice(0, 1000) : ''
-  const contextUrl = typeof body.contextUrl === 'string' ? body.contextUrl.trim().slice(0, 1000) : ''
-  const bot = typeof body.bot === 'string' ? body.bot.trim().slice(0, 60) : ''
-  const model = typeof body.model === 'string' ? body.model.trim().slice(0, 60) : ''
-  const validEfforts = new Set(['low', 'medium', 'high', 'max'])
-  const effort = typeof body.effort === 'string' && validEfforts.has(body.effort) ? body.effort : ''
-  const parentTaskId = typeof body.parentTaskId === 'string' ? body.parentTaskId.trim().slice(0, 80) : ''
-
-  if (task.length < 10 || task.length > 4000) {
+  const parsed = validate(LoopTaskCreateSchema, req.body)
+  if (!parsed.success) {
     const process = processForInvalidInput()
-    res.status(400).json({ ok: false, taskId: id, status: 'failed', destination, deliveryReadiness: readiness, message: 'Task must be between 10 and 4000 characters.', process })
+    res.status(400).json({ ok: false, taskId: id, status: 'failed', destination: 'auto', deliveryReadiness: readiness, message: parsed.error, process })
     return
   }
+  const d = parsed.data
+  const task = d.task.trim()
+  const kind = d.kind ?? 'agent-run'
+  const priority = d.priority ?? 'normal'
+  const destination = (d.destination ?? 'auto') as Destination
+  const expectedResult = (d.expectedResult ?? '').trim()
+  const contextUrl = (d.contextUrl ?? '').trim()
+  const bot = (d.bot ?? '').trim()
+  const model = (d.model ?? '').trim()
+  const effort = d.effort ?? ''
+  const parentTaskId = (d.parentTaskId ?? '').trim()
 
+  log.info('task_received', { taskId: id, kind, priority, destination, hasContext: !!contextUrl })
   let status: TaskStatus = readiness.publicDeliveryEnabled ? 'queued' : 'blocked_config'
   let resolved_destination: ResolvedDestination = 'pending'
   let message = readiness.publicDeliveryEnabled ? 'Task queued for delivery.' : 'Backend intake is installed, but public task delivery is disabled.'
@@ -492,6 +473,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message = 'Task delivered to the configured Telegram bot/chat.'
       process = processForDelivered('telegram')
       await updateTask(id, { status, resolved_destination, delivery_message: message, process, telegram_message_id: telegramMessageId })
+      log.info('delivery_succeeded', { taskId: id, destination: resolved_destination })
       await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination, telegramMessageId })
       await kickWorker(req)
       res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
@@ -517,6 +499,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       step('Verify & report back', 'blocked', 'Check provider logs and env.'),
     ]
     await updateTask(id, { status, resolved_destination, delivery_message: message, process, error: message })
+    log.error('delivery_failed', { taskId: id, destination, error: message })
     await insertEvent(id, 'delivery_failed', message, { destination })
     res.status(502).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
   }

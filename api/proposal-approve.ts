@@ -20,11 +20,8 @@ type VercelResponse = {
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-interface ApprovalRequest {
-  proposalId: string
-  action: 'approved' | 'rejected'
-  reason: string
-}
+import { ProposalApproveSchema, validate } from './schemas.ts'
+import type { ProposalApprove } from './schemas.ts'
 
 async function verifySession(token: string): Promise<{ userId: string; email?: string } | null> {
   if (!SUPABASE_URL) return null
@@ -78,19 +75,9 @@ async function insertActivation(proposalId: string, action: string, reason: stri
   })
 }
 
-function asBody(body: unknown): ApprovalRequest | null {
-  if (typeof body === 'string') {
-    try { return JSON.parse(body) as ApprovalRequest } catch { return null }
-  }
-  if (body && typeof body === 'object') {
-    const b = body as Record<string, unknown>
-    return {
-      proposalId: String(b.proposalId || ''),
-      action: (b.action === 'approved' || b.action === 'rejected') ? b.action as 'approved' | 'rejected' : 'rejected',
-      reason: String(b.reason || '').slice(0, 500),
-    }
-  }
-  return null
+function asBody(body: unknown): ProposalApprove | null {
+  const result = validate(ProposalApproveSchema, typeof body === 'string' ? JSON.parse(body) : body)
+  return result.success ? result.data : null
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -136,21 +123,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const data = asBody(req.body)
-  if (!data || !data.proposalId) {
-    res.status(400).json({ ok: false, message: 'proposalId and action are required.' })
+  if (!data) {
+    res.status(400).json({ ok: false, message: 'Invalid request body. proposalId and action are required.' })
     return
   }
 
   const newStatus = data.action === 'approved' ? 'active' : 'rejected'
 
   try {
-    const updated = await updateProposal(data.proposalId, newStatus, data.reason)
+    const updated = await updateProposal(data.proposalId, newStatus, data.reason ?? '')
     if (!updated) {
       res.status(404).json({ ok: false, message: 'Proposal not found or update failed.' })
       return
     }
 
-    await insertActivation(data.proposalId, data.action, data.reason)
+    await insertActivation(data.proposalId, data.action, data.reason ?? '')
 
     res.status(200).json({
       ok: true,

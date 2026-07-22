@@ -17,6 +17,8 @@ type AssignmentStatus = 'queued' | 'leased' | 'running' | 'blocked' | 'needs_rev
 // Server-only env — no VITE_ fallbacks. The VITE_ vars are bundled into the
 // browser build, so relying on them server-side both leaks config intent and
 // silently "works" in dev while being unset in production.
+import { log } from './logger.ts'
+
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
@@ -284,9 +286,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Fail fast (and loud) when the server is misconfigured rather than throwing
   // deep inside a Supabase call with a confusing 500.
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    log.error('orchestrator_misconfigured', { hasUrl: !!SUPABASE_URL, hasKey: !!SUPABASE_SERVICE_ROLE_KEY })
     res.status(503).json({ ok: false, message: 'Orchestrator is not configured (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required).' })
     return
   }
+
+  log.info('orchestrator_request', { method: req.method })
 
   try {
     if (req.method === 'GET') {
