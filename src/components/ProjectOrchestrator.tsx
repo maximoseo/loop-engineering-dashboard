@@ -14,7 +14,7 @@ const statusOrder: AgentAssignment['status'][] = ['queued', 'leased', 'running',
 
 function shortTime(value: string | null | undefined) {
   if (!value) return '—'
-  return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(value))
+  return new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jerusalem' }).format(new Date(value))
 }
 
 function asText(value: unknown) {

@@ -1,5 +1,6 @@
 import { useDashboard } from '../contexts/DashboardContext.tsx'
 import { exportCsv } from '../lib/exportCsv.ts'
+import { formatTimestamp } from '../lib/loopFormat.ts'
 
 const actionTone: Record<string, string> = {
   activated: '#22c55e',
@@ -39,7 +40,7 @@ export default function ActivationsPage() {
             <tbody>
               {rows.map((a) => (
                 <tr key={a.id} className="border-b border-[var(--border)]/50">
-                  <td className="p-2 font-mono text-xs text-[var(--text-muted)]">{new Date(a.created_at).toLocaleString()}</td>
+                  <td className="p-2 font-mono text-xs text-[var(--text-muted)]">{formatTimestamp(a.created_at)}</td>
                   <td className="p-2">
                     <span
                       className="px-2 py-0.5 rounded text-xs font-medium"

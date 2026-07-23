@@ -1,4 +1,5 @@
 import type { DataHealth } from '../types.ts'
+import { formatTime } from '../lib/loopFormat.ts'
 
 interface Props {
   health: DataHealth
@@ -126,7 +127,7 @@ export function ProductionStatus({
         <span>Activated <strong>{activated}</strong></span>
         <span>Rolled back <strong>{rolledBack}</strong></span>
         <span>Refresh <strong>{lastUpdated ? formatElapsed(elapsed) : 'pending'}</strong></span>
-        <span>Last good fetch <strong>{health.lastSuccessfulFetch ? new Date(health.lastSuccessfulFetch).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'none'}</strong></span>
+        <span>Last good fetch <strong>{health.lastSuccessfulFetch ? formatTime(health.lastSuccessfulFetch) : 'none'}</strong></span>
       </div>
     </section>
   )

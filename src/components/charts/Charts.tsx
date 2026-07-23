@@ -23,7 +23,7 @@ export function ScoreTrend({ scores, days = 30, height = 200 }: ScoreTrendProps)
     return scores
       .filter(s => new Date(s.created_at).getTime() > cutoff)
       .map(s => ({
-        date: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        date: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'Asia/Jerusalem' }).format(new Date(s.created_at)),
         score: s.total,
         id: s.task_id.slice(0, 8),
       }))
