@@ -39,29 +39,26 @@ export function ScoreTrend({ scores, days = 30, height = 200 }: ScoreTrendProps)
       <AreaChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
         <defs>
           <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent, #6366f1)" stopOpacity={0.3} />
-            <stop offset="100%" stopColor="var(--accent, #6366f1)" stopOpacity={0} />
+            <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.25} />
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border, #333)" />
-        <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--text-secondary, #888)' }} />
-        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary, #888)' }} />
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--text-secondary, #888)' }} axisLine={false} tickLine={false} />
+        <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary, #888)' }} axisLine={false} tickLine={false} />
         <Tooltip
-          contentStyle={{
-            background: 'var(--card, #1a1a2e)',
-            border: '1px solid var(--border, #333)',
-            borderRadius: 8,
-            color: 'var(--text, #fff)',
-          }}
-          labelStyle={{ color: 'var(--text-secondary, #888)' }}
+          contentStyle={{ background: 'rgba(2,6,23,0.95)', border: '1px solid rgba(148,163,184,0.15)', borderRadius: 8, color: '#f8fafc', fontSize: 12 }}
+          labelStyle={{ color: '#94a3b8' }}
+          itemStyle={{ color: '#22d3ee' }}
         />
         <Area
           type="monotone"
           dataKey="score"
-          stroke="var(--accent, #6366f1)"
+          stroke="#22d3ee"
           fill="url(#scoreGradient)"
           strokeWidth={2}
-          dot={{ r: 2, fill: 'var(--accent, #6366f1)' }}
+          dot={{ r: 2, fill: '#22d3ee' }}
+          activeDot={{ r: 4, fill: '#a78bfa' }}
         />
       </AreaChart>
     </ResponsiveContainer>
@@ -86,18 +83,15 @@ export function RubricBreakdown({ breakdown, height = 180 }: RubricBreakdownProp
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border, #333)" />
-        <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--text-secondary, #888)' }} />
-        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10, fill: 'var(--text, #ccc)' }} />
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+        <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--text-secondary, #888)' }} axisLine={false} tickLine={false} />
+        <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10, fill: 'var(--text, #ccc)' }} axisLine={false} tickLine={false} />
         <Tooltip
-          contentStyle={{
-            background: 'var(--card, #1a1a2e)',
-            border: '1px solid var(--border, #333)',
-            borderRadius: 8,
-            color: 'var(--text, #fff)',
-          }}
+          contentStyle={{ background: 'rgba(2,6,23,0.95)', border: '1px solid rgba(148,163,184,0.15)', borderRadius: 8, color: '#f8fafc', fontSize: 12 }}
+          cursor={{ fill: 'rgba(148,163,184,0.05)' }}
+          itemStyle={{ color: '#8b5cf6' }}
         />
-        <Bar dataKey="value" fill="var(--accent, #6366f1)" radius={[0, 4, 4, 0]} barSize={16} />
+        <Bar dataKey="value" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={16} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -146,16 +140,12 @@ export function FailureHistogram({ failures, weeks = 12, height = 180 }: Failure
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border, #333)" />
-        <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'var(--text-secondary, #888)' }} />
-        <YAxis tick={{ fontSize: 10, fill: 'var(--text-secondary, #888)' }} />
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+        <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'var(--text-secondary, #888)' }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: 'var(--text-secondary, #888)' }} axisLine={false} tickLine={false} />
         <Tooltip
-          contentStyle={{
-            background: 'var(--card, #1a1a2e)',
-            border: '1px solid var(--border, #333)',
-            borderRadius: 8,
-            color: 'var(--text, #fff)',
-          }}
+          contentStyle={{ background: 'rgba(2,6,23,0.95)', border: '1px solid rgba(148,163,184,0.15)', borderRadius: 8, color: '#f8fafc', fontSize: 12 }}
+          cursor={{ fill: 'rgba(148,163,184,0.05)' }}
         />
         {Object.entries(colors).map(([key, color]) => (
           <Bar key={key} dataKey={key} stackId="a" fill={color} barSize={20} />
