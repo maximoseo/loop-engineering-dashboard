@@ -20,11 +20,11 @@
   --accent-gradient: linear-gradient(135deg, #8b5cf6, #06b6d4);
   --accent-glow: rgba(139, 92, 246, 0.25);
 
-  /* Status */
-  --success: #22d3ee;
+  /* Status — green=success (WCAG AA on dark), cyan=info, amber=warning, red=error */
+  --success: #34d399;
   --warning: #fbbf24;
   --error: #f87171;
-  --info: #60a5fa;
+  --info: #22d3ee;
 
   /* Text */
   --text: #f4f4f5;

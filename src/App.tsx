@@ -2,10 +2,10 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext.tsx'
 import { DashboardProvider } from './contexts/DashboardContext.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary.tsx'
 import Layout from './components/Layout.tsx'
 
 const LoginPage = lazy(() => import('./pages/LoginPage.tsx'))
-const SignupPage = lazy(() => import('./pages/SignupPage.tsx'))
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage.tsx'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage.tsx'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage.tsx'))
@@ -41,16 +41,17 @@ export default function App() {
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
 
               <Route
                 element={
                   <ProtectedRoute>
-                    <DashboardProvider>
-                      <Layout />
-                    </DashboardProvider>
+                    <ErrorBoundary>
+                      <DashboardProvider>
+                        <Layout />
+                      </DashboardProvider>
+                    </ErrorBoundary>
                   </ProtectedRoute>
                 }
               >

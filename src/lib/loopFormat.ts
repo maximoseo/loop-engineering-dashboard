@@ -1,6 +1,42 @@
 import type { CostSummary } from '../types.ts'
 
 /**
+ * Format an ISO timestamp in Asia/Jerusalem timezone.
+ * Returns '—' for null/empty so callers can render empty states without extra guards.
+ */
+export function formatTimestamp(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
+/** Format just the time portion (HH:MM) in Jerusalem timezone. */
+export function formatTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jerusalem',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
+/**
  * Turn a managed-skill target path into a readable label.
  * Loop proposal targets look like `...\Loop-Managed\Secret-Lesson-Sanitization\SKILL.md`,
  * where the meaningful name is the parent folder; other `.md` files keep their own name.
