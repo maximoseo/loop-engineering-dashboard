@@ -20,13 +20,14 @@ from lib.common import DATA_DIR, log, read_json
 
 
 def cmd_status() -> None:
+    ws = db.sql_literal(db.workspace_id())
     state = db.select("loop_state", "id=eq.main")
-    iterations = db.run_sql("select count(*) as n from public.loop_iterations;")
+    iterations = db.run_sql(f"select count(*) as n from public.loop_iterations where workspace_id = {ws};")
     scores = db.run_sql(
-        "select round(avg(total)) as avg7 from public.loop_scores where created_at > now() - interval '7 days';"
+        f"select round(avg(total)) as avg7 from public.loop_scores where workspace_id = {ws} and created_at > now() - interval '7 days';"
     )
     pending = db.run_sql(
-        "select proposal_id, type, target, risk_level from public.loop_proposals where status = 'pending_approval';"
+        f"select proposal_id, type, target, risk_level from public.loop_proposals where workspace_id = {ws} and status = 'pending_approval';"
     )
     print(json.dumps(
         {
@@ -84,11 +85,12 @@ def cmd_approve(proposal_id: str) -> None:
         print(f"  content:\n{proposal['new_value']}")
         answer = input("Mark as active (applied manually)? [y/N] ").strip().lower()
         if answer == "y":
-            db.update("loop_proposals", f"proposal_id=eq.{proposal_id}", {"status": "active"})
-            db.insert("loop_activations", {"proposal_id": proposal_id, "action": "approved", "reason": "manual apply confirmed"})
+            act.transition(
+                proposal, "pending_approval", "active", "approved", "manual apply confirmed",
+                dict(proposal.get("eval_summary") or {}),
+            )
         return
     act.activate(proposal, dict(proposal.get("eval_summary") or {}), "human approved via loopctl")
-    db.insert("loop_activations", {"proposal_id": proposal_id, "action": "approved", "reason": "loopctl approve"})
 
 
 def cmd_rollback(proposal_id: str, reason: str) -> None:
@@ -99,12 +101,13 @@ def cmd_rollback(proposal_id: str, reason: str) -> None:
 
 
 def cmd_health() -> None:
+    ws = db.sql_literal(db.workspace_id())
     recurring = db.run_sql(
-        "select pattern_key, frequency from public.loop_failure_patterns where frequency >= 3 order by frequency desc limit 10;"
+        f"select pattern_key, frequency from public.loop_failure_patterns where workspace_id = {ws} and frequency >= 3 order by frequency desc limit 10;"
     )
     for row in recurring:
         log(f"health: recurring failure pattern {row['pattern_key']} x{row['frequency']}")
-    db.run_sql("update public.loop_state set updated_at = now() where id = 'main';")
+    db.run_sql(f"update public.loop_state set updated_at = now() where workspace_id = {ws} and id = 'main';")
     log("health: heartbeat written")
 
 

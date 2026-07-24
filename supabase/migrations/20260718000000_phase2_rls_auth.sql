@@ -23,7 +23,7 @@ create policy "loop_activations_auth_read" on public.loop_activations for select
 -- Write policies for authenticated users on proposals (approve/reject)
 create policy "loop_proposals_auth_update" on public.loop_proposals
   for update using (auth.role() = 'authenticated')
-  with check (new.status in ('proposed','testing','pending_approval','active','rejected','rolled_back'));
+  with check (status in ('proposed','testing','pending_approval','active','rejected','rolled_back'));
 
 -- Keep loop_task_handoffs and loop_task_events service-role only (no anon access)
 -- These tables are in the separate task queue migration

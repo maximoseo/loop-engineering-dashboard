@@ -73,3 +73,26 @@ def ask_json(prompt: str, retries: int = 1) -> dict[str, Any]:
             last = exc
             log(f"judge attempt {attempt + 1} failed: {exc}")
     raise JudgeError(str(last))
+
+
+def validate_object(value: dict[str, Any], schema: dict[str, tuple[type, int | None, int | None]]) -> dict[str, Any]:
+    """Strictly validate LLM JSON; bools never pass as ints and unknown keys are rejected."""
+    if set(value) != set(schema):
+        raise JudgeError(f"invalid JSON keys: expected {sorted(schema)}, got {sorted(value)}")
+    clean: dict[str, Any] = {}
+    for key, (kind, minimum, maximum) in schema.items():
+        item = value[key]
+        if kind is int and (type(item) is not int):
+            raise JudgeError(f"{key} must be an integer")
+        if kind is bool and type(item) is not bool:
+            raise JudgeError(f"{key} must be a boolean")
+        if kind is str and type(item) is not str:
+            raise JudgeError(f"{key} must be a string")
+        if isinstance(item, int) and minimum is not None and item < minimum:
+            raise JudgeError(f"{key} is below {minimum}")
+        if isinstance(item, int) and maximum is not None and item > maximum:
+            raise JudgeError(f"{key} exceeds {maximum}")
+        if isinstance(item, str) and maximum is not None and len(item) > maximum:
+            raise JudgeError(f"{key} is too long")
+        clean[key] = item
+    return clean

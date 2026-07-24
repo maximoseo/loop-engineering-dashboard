@@ -11,15 +11,32 @@ import os
 import time
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 from .common import SUPABASE_PROJECT_REF, SUPABASE_URL, log
 
 _UA = "loop-engineering/1.0"
+TENANT_TABLES = {
+    "loop_state", "loop_iterations", "loop_scores", "loop_lessons", "loop_proposals",
+    "loop_eval_results", "loop_failure_patterns", "loop_activations", "loop_task_handoffs",
+    "loop_task_events", "loop_projects", "loop_model_profiles", "loop_agent_registry",
+    "loop_orchestrator_runs", "loop_agent_assignments", "loop_agent_events", "loop_run_artifacts",
+    "loop_run_evaluations", "loop_run_approvals", "loop_resource_locks", "loop_cost_events",
+    "loop_worker_heartbeats",
+}
 
 
 class DbError(RuntimeError):
     pass
+
+
+def workspace_id() -> str:
+    value = os.environ.get("LOOP_WORKSPACE_ID", "")
+    try:
+        return str(uuid.UUID(value))
+    except ValueError as exc:
+        raise DbError("LOOP_WORKSPACE_ID must be configured as a UUID") from exc
 
 
 def _http(url: str, method: str, headers: dict[str, str], body: bytes | None) -> tuple[int, str]:
@@ -110,6 +127,8 @@ def _rest(path: str, method: str, payload: Any | None, prefer: str | None = None
 
 
 def insert(table: str, row: dict[str, Any], on_conflict: str | None = None) -> None:
+    if table in TENANT_TABLES:
+        row = {"workspace_id": workspace_id(), **row}
     if _service_key():
         prefer = "return=minimal"
         path = table
@@ -125,6 +144,8 @@ def insert(table: str, row: dict[str, Any], on_conflict: str | None = None) -> N
 
 
 def update(table: str, where: str, changes: dict[str, Any]) -> None:
+    if table in TENANT_TABLES:
+        where = f"workspace_id=eq.{workspace_id()}&{where}" if where else f"workspace_id=eq.{workspace_id()}"
     if _service_key():
         _rest(f"{table}?{where}", "PATCH", changes, "return=minimal")
         return
@@ -134,10 +155,24 @@ def update(table: str, where: str, changes: dict[str, Any]) -> None:
 
 
 def select(table: str, query: str = "") -> list[dict[str, Any]]:
+    if table in TENANT_TABLES:
+        query = f"workspace_id=eq.{workspace_id()}&{query}" if query else f"workspace_id=eq.{workspace_id()}"
     if _service_key():
         return _rest(f"{table}?{query}" if query else table, "GET", None)
     clause = _query_to_sql(query)
     return run_sql(f"select * from public.{table}{clause};")
+
+
+def rpc(function: str, params: dict[str, Any]) -> Any:
+    """Call a reviewed database transition function through either configured channel."""
+    if _service_key():
+        rows = _rest(f"rpc/{function}", "POST", params)
+        if len(rows) == 1 and isinstance(rows[0], str):
+            return rows[0]
+        return rows[0] if len(rows) == 1 else rows
+    args = ", ".join(f"{key} => {sql_literal(value)}" for key, value in params.items())
+    rows = run_sql(f"select public.{function}({args}) as result;")
+    return rows[0].get("result") if rows else None
 
 
 def _where_to_sql(where: str) -> str:
@@ -190,6 +225,6 @@ def set_loop_state(phase: str, **extra: Any) -> None:
                 f"{k} = {sql_literal(v)}" if k != "updated_at" else "updated_at = now()"
                 for k, v in changes.items()
             )
-            run_sql(f"update public.loop_state set {sets} where id = 'main';")
+            run_sql(f"update public.loop_state set {sets} where workspace_id = {sql_literal(workspace_id())} and id = 'main';")
     except DbError as exc:
         log(f"loop_state update failed: {exc}")

@@ -35,7 +35,13 @@ const envKeys = [
   'LOOP_OPERATOR_EMAILS',
   'LOOP_APPROVER_EMAILS',
   'ORCHESTRATOR_WORKER_TOKEN',
+  'LOOP_WORKSPACE_ID',
 ] as const
+const WORKSPACE_ID = '00000000-0000-4000-8000-000000000001'
+const membership = (role = 'operator') => new Response(JSON.stringify([{ workspace_id: WORKSPACE_ID, role }]), {
+  status: 200,
+  headers: { 'content-type': 'application/json' },
+})
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]))
 
 beforeEach(() => {
@@ -124,6 +130,7 @@ describe('P0 API auth containment', () => {
     process.env.SUPABASE_URL = 'https://project.supabase.co'
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
     process.env.ORCHESTRATOR_WORKER_TOKEN = 'test-worker-token-value'
+    process.env.LOOP_WORKSPACE_ID = WORKSPACE_ID
     const fetchMock = vi.fn()
     for (let index = 0; index < 9; index += 1) {
       fetchMock.mockResolvedValueOnce(new Response('[]', {
@@ -172,6 +179,7 @@ describe('P0 API auth containment', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }))
+      .mockResolvedValueOnce(membership())
     for (let index = 0; index < 5; index += 1) {
       fetchMock.mockResolvedValueOnce(new Response('[]', {
         status: 200,
@@ -190,7 +198,7 @@ describe('P0 API auth containment', () => {
 
     expect(recorded.statusCode).toBe(200)
     expect(recorded.body).toMatchObject({ ok: true, run: null })
-    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock).toHaveBeenCalledTimes(7)
   })
 
   it('does not let a user bearer token enter worker-only mutation paths', async () => {
@@ -217,6 +225,7 @@ describe('P0 API auth containment', () => {
     process.env.SUPABASE_URL = 'https://project.supabase.co'
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
     process.env.ORCHESTRATOR_WORKER_TOKEN = 'test-worker-token-value'
+    process.env.LOOP_WORKSPACE_ID = WORKSPACE_ID
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const { default: handler } = await import('../api/orchestrator.ts')
@@ -362,6 +371,7 @@ describe('P0 API auth containment', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }))
+      .mockResolvedValueOnce(membership('owner'))
       .mockResolvedValueOnce(new Response('"applied"', {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -377,10 +387,11 @@ describe('P0 API auth containment', () => {
     }, response)
 
     expect(recorded.statusCode).toBe(200)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(String(fetchMock.mock.calls[1][0])).toContain('/rest/v1/rpc/apply_loop_proposal_decision')
-    const decisionBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body))
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/rest/v1/rpc/apply_loop_proposal_decision')
+    const decisionBody = JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))
     expect(decisionBody).toMatchObject({
+      p_workspace_id: WORKSPACE_ID,
       p_proposal_id: 'proposal-1',
       p_decision: 'approved',
       p_reason: 'Evidence reviewed.',
@@ -399,6 +410,7 @@ describe('P0 API auth containment', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }))
+      .mockResolvedValueOnce(membership('owner'))
       .mockResolvedValueOnce(new Response('"not_pending"', {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -438,9 +450,18 @@ describe('browser Supabase session propagation', () => {
       data: { session: { access_token: 'operator-session-token' } },
       error: null,
     } as Awaited<ReturnType<typeof supabase.auth.getSession>>)
+    const membershipQuery = {
+      select: vi.fn(),
+      eq: vi.fn(),
+      limit: vi.fn().mockResolvedValue({ data: [{ workspace_id: WORKSPACE_ID }], error: null }),
+    }
+    membershipQuery.select.mockReturnValue(membershipQuery)
+    membershipQuery.eq.mockReturnValue(membershipQuery)
+    vi.spyOn(supabase, 'from').mockReturnValue(membershipQuery as never)
 
     await expect(supabaseAuthHeaders()).resolves.toEqual({
       authorization: 'Bearer operator-session-token',
+      'x-workspace-id': WORKSPACE_ID,
     })
   })
 })
