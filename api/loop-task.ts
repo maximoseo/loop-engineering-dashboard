@@ -1,6 +1,7 @@
 import { allowlistedEmail, authenticateSupabaseUser } from './_auth.js'
 import { LoopTaskCreateSchema, validate } from './schemas.js'
 import { log } from './logger.js'
+import { workspaceForUser } from './_workspace.js'
 
 type StepState = 'pending' | 'active' | 'done' | 'blocked' | 'error'
 type Destination = 'auto' | 'telegram' | 'worker-webhook'
@@ -56,6 +57,7 @@ interface ProcessStep {
 }
 
 interface StoredTask {
+  workspace_id: string
   task_id: string
   task: string
   kind: string
@@ -189,6 +191,7 @@ async function supabaseFetch(path: string, init: RequestInit = {}) {
 }
 
 async function insertTask(row: {
+  workspace_id: string
   task_id: string
   task: string
   kind: string
@@ -209,13 +212,13 @@ async function insertTask(row: {
   })
   if (!response.ok) throw new Error(`Supabase insert task: HTTP ${response.status} ${(await response.text()).slice(0, 160)}`)
   const json = await response.json() as StoredTask[]
-  await insertEvent(row.task_id, 'task_created', 'Task created in persistent queue.', { status: row.status })
+  await insertEvent(row.workspace_id, row.task_id, 'task_created', 'Task created in persistent queue.', { status: row.status })
   return json[0]
 }
 
-async function updateTask(task_id: string, patch: Partial<StoredTask>) {
+async function updateTask(workspace_id: string, task_id: string, patch: Partial<StoredTask>) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?task_id=eq.${encodeURIComponent(task_id)}`, {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?workspace_id=eq.${encodeURIComponent(workspace_id)}&task_id=eq.${encodeURIComponent(task_id)}`, {
     method: 'PATCH',
     headers: supabaseHeaders('return=representation'),
     body: JSON.stringify(patch),
@@ -225,27 +228,27 @@ async function updateTask(task_id: string, patch: Partial<StoredTask>) {
   return json[0]
 }
 
-async function insertEvent(task_id: string, event_type: string, message: string, metadata: Record<string, unknown> = {}) {
+async function insertEvent(workspace_id: string, task_id: string, event_type: string, message: string, metadata: Record<string, unknown> = {}) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return
   const response = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_events`, {
     method: 'POST',
     headers: supabaseHeaders(),
-    body: JSON.stringify({ task_id, event_type, message, metadata }),
+    body: JSON.stringify({ workspace_id, task_id, event_type, message, metadata }),
   })
   if (!response.ok) throw new Error(`Supabase insert event: HTTP ${response.status} ${(await response.text()).slice(0, 160)}`)
 }
 
-async function listTasks(limit = 12) {
+async function listTasks(workspace_id: string, limit = 12) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return []
-  const response = await supabaseFetch(`loop_task_handoffs?select=*&status=neq.archived&order=created_at.desc&limit=${limit}`)
+  const response = await supabaseFetch(`loop_task_handoffs?select=*&workspace_id=eq.${encodeURIComponent(workspace_id)}&status=neq.archived&order=created_at.desc&limit=${limit}`)
   return (await response.json()) as StoredTask[]
 }
 
-async function getTask(task_id: string) {
+async function getTask(workspace_id: string, task_id: string) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return { tasks: [], events: [] }
   const [taskResponse, eventResponse] = await Promise.all([
-    supabaseFetch(`loop_task_handoffs?select=*&task_id=eq.${encodeURIComponent(task_id)}&limit=1`),
-    supabaseFetch(`loop_task_events?select=*&task_id=eq.${encodeURIComponent(task_id)}&order=created_at.asc`),
+    supabaseFetch(`loop_task_handoffs?select=*&workspace_id=eq.${encodeURIComponent(workspace_id)}&task_id=eq.${encodeURIComponent(task_id)}&limit=1`),
+    supabaseFetch(`loop_task_events?select=*&workspace_id=eq.${encodeURIComponent(workspace_id)}&task_id=eq.${encodeURIComponent(task_id)}&order=created_at.asc`),
   ])
   return { tasks: await taskResponse.json(), events: await eventResponse.json() }
 }
@@ -269,6 +272,7 @@ async function sendTelegram(payload: { id: string; task: string; kind: string; p
 
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
+    signal: AbortSignal.timeout(8_000),
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
   })
@@ -277,13 +281,14 @@ async function sendTelegram(payload: { id: string; task: string; kind: string; p
   return json.result?.message_id ? String(json.result.message_id) : null
 }
 
-async function sendWebhook(payload: { id: string; task: string; kind: string; priority: string; destination: Destination }) {
+async function sendWebhook(payload: { workspaceId: string; id: string; task: string; kind: string; priority: string; destination: Destination }) {
   const url = process.env.LOOP_TASK_WEBHOOK_URL
   if (!url) throw new Error('Webhook env is missing')
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (process.env.LOOP_TASK_WEBHOOK_SECRET) headers.authorization = `Bearer ${process.env.LOOP_TASK_WEBHOOK_SECRET}`
   const response = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(8_000),
     headers,
     body: JSON.stringify({ ...payload, source: 'loop-engineering-dashboard', createdAt: new Date().toISOString() }),
   })
@@ -294,11 +299,11 @@ async function sendWebhook(payload: { id: string; task: string; kind: string; pr
 // instead of waiting for the next cron tick. Best-effort: the request reaches a
 // separate /api/worker invocation that runs to completion on its own; we only
 // wait long enough to hand it off, and the every-minute cron is the backstop.
-async function kickWorker(req: VercelRequest) {
+async function kickWorker() {
   const secret = process.env.WORKER_SECRET
-  const host = (req.headers['x-forwarded-host'] as string) || (req.headers.host as string)
+  const host = process.env.VERCEL_URL
   if (!secret || !host) return
-  const proto = (req.headers['x-forwarded-proto'] as string) || 'https'
+  const proto = 'https'
   try {
     // Short hand-off: the request reaches a separate /api/worker invocation that
     // runs to completion on its own; we only wait long enough to send it so the
@@ -331,10 +336,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(403).json({ ok: false, message: 'Operator access is not configured for this account.' })
     return
   }
+  const workspace = await workspaceForUser(req, user, req.method === 'POST')
+  if (!workspace) {
+    res.status(403).json({ ok: false, message: 'Workspace access is required.' })
+    return
+  }
 
   // Rate limiting for POST (task submission)
   if (req.method === 'POST') {
-    const clientId = getClientIdentifier(req)
+    const clientId = `${workspace.workspaceId}:${user.id}:${getClientIdentifier(req)}`
     const limit = rateLimit(clientId)
     if (!limit.allowed) {
       res.status(429).json({
@@ -351,13 +361,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'GET') {
     const taskIdParam = queryValue(req, 'taskId')
     if (taskIdParam) {
-      const detail = await getTask(taskIdParam)
+      const detail = await getTask(workspace.workspaceId, taskIdParam)
       res.status(200).json({ ok: true, deliveryReadiness: readiness, ...detail })
       return
     }
     const includeTasks = queryValue(req, 'includeTasks') === 'true'
-    const tasks = includeTasks ? await listTasks() : []
-    res.status(200).json({ ok: true, deliveryReadiness: readiness, tasks })
+    const tasks = includeTasks ? await listTasks(workspace.workspaceId) : []
+    res.status(200).json({ ok: true, workspaceId: workspace.workspaceId, deliveryReadiness: readiness, tasks })
     return
   }
 
@@ -397,6 +407,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     await insertTask({
+      workspace_id: workspace.workspaceId,
       task_id: id,
       task,
       kind,
@@ -415,21 +426,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (!readiness.publicDeliveryEnabled) {
-    await insertEvent(id, 'delivery_blocked', message, { reason: 'public_delivery_disabled' })
+    await insertEvent(workspace.workspaceId, id, 'delivery_blocked', message, { reason: 'public_delivery_disabled' })
     res.status(202).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
     return
   }
 
   try {
     if (destination === 'worker-webhook' || (destination === 'auto' && readiness.webhookConfigured)) {
-      await sendWebhook({ id, task, kind, priority, destination })
+      await sendWebhook({ workspaceId: workspace.workspaceId, id, task, kind, priority, destination })
       status = 'delivered'
       resolved_destination = 'worker-webhook'
       message = 'Task delivered to the configured worker webhook.'
       process = processForDelivered('worker-webhook')
-      await updateTask(id, { status, resolved_destination, delivery_message: message, process })
-      await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination })
-      await kickWorker(req)
+      await updateTask(workspace.workspaceId, id, { status, resolved_destination, delivery_message: message, process })
+      await insertEvent(workspace.workspaceId, id, 'delivery_succeeded', message, { destination: resolved_destination })
+      await kickWorker()
       res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
       return
     }
@@ -440,10 +451,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       resolved_destination = 'telegram'
       message = 'Task delivered to the configured Telegram bot/chat.'
       process = processForDelivered('telegram')
-      await updateTask(id, { status, resolved_destination, delivery_message: message, process, telegram_message_id: telegramMessageId })
+      await updateTask(workspace.workspaceId, id, { status, resolved_destination, delivery_message: message, process, telegram_message_id: telegramMessageId })
       log.info('delivery_succeeded', { taskId: id, destination: resolved_destination })
-      await insertEvent(id, 'delivery_succeeded', message, { destination: resolved_destination, telegramMessageId })
-      await kickWorker(req)
+      await insertEvent(workspace.workspaceId, id, 'delivery_succeeded', message, { destination: resolved_destination, telegramMessageId })
+      await kickWorker()
       res.status(200).json({ ok: true, taskId: id, status, destination: resolved_destination, deliveryReadiness: readiness, message, process })
       return
     }
@@ -452,8 +463,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     resolved_destination = 'blocked'
     message = 'No delivery channel is configured. Add LOOP_TASK_WEBHOOK_URL or TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in Vercel.'
     process = processForMissingChannel()
-    await updateTask(id, { status, resolved_destination, delivery_message: message, process })
-    await insertEvent(id, 'delivery_blocked', message, { reason: 'missing_channel' })
+    await updateTask(workspace.workspaceId, id, { status, resolved_destination, delivery_message: message, process })
+    await insertEvent(workspace.workspaceId, id, 'delivery_blocked', message, { reason: 'missing_channel' })
     res.status(202).json({ ok: false, taskId: id, status, destination, deliveryReadiness: readiness, message, process })
   } catch (error) {
     console.error('Task delivery failed', error)
@@ -469,8 +480,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       step('Verify & report back', 'blocked', 'Check server logs and delivery configuration.'),
     ]
     try {
-      await updateTask(id, { status, resolved_destination, delivery_message: message, process, error: message })
-      await insertEvent(id, 'delivery_failed', message, { destination })
+      await updateTask(workspace.workspaceId, id, { status, resolved_destination, delivery_message: message, process, error: message })
+      await insertEvent(workspace.workspaceId, id, 'delivery_failed', message, { destination })
     } catch (persistenceError) {
       console.error('Unable to persist task delivery failure', persistenceError)
     }

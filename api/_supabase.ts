@@ -22,6 +22,7 @@ export function serviceHeaders(prefer?: string): Record<string, string> {
 export async function sb<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   if (!SUPABASE_URL) throw new Error('Missing SUPABASE_URL')
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    signal: AbortSignal.timeout(8_000),
     ...init,
     headers: { ...serviceHeaders((init as { prefer?: string }).prefer), ...(init.headers || {}) },
   })

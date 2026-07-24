@@ -1,3 +1,6 @@
+import { isIP } from 'node:net'
+import { workspaceForWorker } from './_workspace.js'
+
 // Minimal request/response shapes (mirrors api/loop-task.ts — @vercel/node is
 // provided by the Vercel runtime at deploy time, not installed locally, so we
 // avoid importing it to keep the local typecheck green).
@@ -24,6 +27,21 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || proce
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY || ''
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || ''
+const PROVIDER_TIMEOUT_MS = 25_000
+const MAX_PROVIDER_RESPONSE_BYTES = 2_000_000
+
+async function boundedJson<T>(res: Response): Promise<T> {
+  const declared = Number(res.headers.get('content-length') || 0)
+  if (declared > MAX_PROVIDER_RESPONSE_BYTES) throw new Error('Provider response exceeds size limit')
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  if (bytes.byteLength > MAX_PROVIDER_RESPONSE_BYTES) throw new Error('Provider response exceeds size limit')
+  return JSON.parse(new TextDecoder().decode(bytes)) as T
+}
+
+async function boundedText(res: Response, limit = 512): Promise<string> {
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  return new TextDecoder().decode(bytes.slice(0, limit))
+}
 
 // Fire a Telegram message to the configured chat. Best-effort: never throws.
 async function telegram(text: string) {
@@ -31,6 +49,7 @@ async function telegram(text: string) {
   try {
     await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
+      signal: AbortSignal.timeout(8_000),
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text.slice(0, 3900), disable_web_page_preview: true }),
     })
@@ -62,10 +81,10 @@ async function llmChat(system: string, user: string, modelName: string, maxToken
         { role: 'user', content: user },
       ],
     }),
-    signal: AbortSignal.timeout(25000), // never hang the worker on a slow model
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   })
-  if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 140)}`)
-  const j = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { total_tokens?: number } }
+  if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${await boundedText(res, 140)}`)
+  const j = await boundedJson<{ choices?: Array<{ message?: { content?: string } }>; usage?: { total_tokens?: number } }>(res)
   if (cost && typeof j.usage?.total_tokens === 'number') cost.llm_tokens += j.usage.total_tokens
   const out = j.choices?.[0]?.message?.content?.trim()
   if (!out) throw new Error('LLM returned empty')
@@ -99,6 +118,7 @@ async function llmInterpret(url: string, deterministic: string, bot: string, mod
 const CLAIMABLE = ['queued', 'delivered']
 
 interface StoredTask {
+  workspace_id: string
   task_id: string
   task: string
   status: string
@@ -121,16 +141,16 @@ async function sb(path: string, init: RequestInit = {}) {
   return res
 }
 
-async function event(task_id: string, event_type: string, message: string, metadata: Record<string, unknown> = {}) {
+async function event(workspace_id: string, task_id: string, event_type: string, message: string, metadata: Record<string, unknown> = {}) {
   await fetch(`${SUPABASE_URL}/rest/v1/loop_task_events`, {
     method: 'POST',
     headers: headers(),
-    body: JSON.stringify({ task_id, event_type, message, metadata }),
+    body: JSON.stringify({ workspace_id, task_id, event_type, message, metadata }),
   })
 }
 
-async function patchTask(task_id: string, guardStatus: string, patch: Record<string, unknown>): Promise<StoredTask | null> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?task_id=eq.${encodeURIComponent(task_id)}&status=eq.${guardStatus}`, {
+async function patchTask(workspace_id: string, task_id: string, guardStatus: string, patch: Record<string, unknown>): Promise<StoredTask | null> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/loop_task_handoffs?workspace_id=eq.${encodeURIComponent(workspace_id)}&task_id=eq.${encodeURIComponent(task_id)}&status=eq.${guardStatus}`, {
     method: 'PATCH',
     headers: headers('return=representation'),
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
@@ -143,9 +163,20 @@ async function patchTask(task_id: string, guardStatus: string, patch: Record<str
 export function firstUrl(task: StoredTask): string | null {
   const meta = task.metadata || {}
   const ctx = typeof meta.contextUrl === 'string' ? meta.contextUrl.trim() : ''
-  if (/^https?:\/\//i.test(ctx)) return ctx
+  if (/^https?:\/\//i.test(ctx)) return safePublicUrl(ctx)
   const match = task.task.match(/https?:\/\/[^\s"'<>)]+/i)
-  return match ? match[0] : null
+  return match ? safePublicUrl(match[0]) : null
+}
+
+function safePublicUrl(value: string): string | null {
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return null
+    if (isIP(host) && (/^(10\.|127\.|169\.254\.|192\.168\.|0\.)/.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^(::1|fc|fd|fe8|fe9|fea|feb)/i.test(host))) return null
+    return url.toString()
+  } catch { return null }
 }
 
 interface Scrape {
@@ -163,10 +194,11 @@ async function firecrawl(url: string, cost?: Cost): Promise<Scrape> {
     // rawHtml = the true DOM (keeps <head> meta + scripts). The plain 'html'
     // format is readability-cleaned and strips them, which made viewport /
     // canonical / JSON-LD / script-count read as false negatives.
-    body: JSON.stringify({ url, formats: ['rawHtml', 'links'], onlyMainContent: false, waitFor: 2500, timeout: 45000 }),
+    body: JSON.stringify({ url, formats: ['rawHtml', 'links'], onlyMainContent: false, waitFor: 2500, timeout: PROVIDER_TIMEOUT_MS }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   })
-  if (!res.ok) throw new Error(`Firecrawl HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`)
-  const json = await res.json() as { success?: boolean; data?: { rawHtml?: string; html?: string; links?: string[]; metadata?: Record<string, unknown> }; error?: string }
+  if (!res.ok) throw new Error(`Firecrawl HTTP ${res.status}: ${await boundedText(res, 160)}`)
+  const json = await boundedJson<{ success?: boolean; data?: { rawHtml?: string; html?: string; links?: string[]; metadata?: Record<string, unknown> }; error?: string }>(res)
   if (!json.success || !json.data) throw new Error(`Firecrawl: ${json.error || 'no data'}`)
   const m = json.data.metadata || {}
   if (cost) cost.firecrawl_credits += typeof m.creditsUsed === 'number' ? (m.creditsUsed as number) : 1
@@ -187,12 +219,13 @@ async function firecrawlMap(url: string, cost?: Cost): Promise<string[]> {
     body: JSON.stringify({ url, limit: 25 }),
     signal: AbortSignal.timeout(20000),
   })
-  if (!res.ok) throw new Error(`Firecrawl map HTTP ${res.status}: ${(await res.text()).slice(0, 140)}`)
-  const j = await res.json() as { success?: boolean; links?: Array<string | { url?: string }>; error?: string }
+  if (!res.ok) throw new Error(`Firecrawl map HTTP ${res.status}: ${await boundedText(res, 140)}`)
+  const j = await boundedJson<{ success?: boolean; links?: Array<string | { url?: string }>; error?: string }>(res)
   if (cost) cost.firecrawl_credits += 1
   const links = (j.links || [])
     .map((l) => (typeof l === 'string' ? l : l?.url))
-    .filter((l): l is string => typeof l === 'string' && /^https?:\/\//i.test(l))
+    .map((l) => typeof l === 'string' ? safePublicUrl(l) : null)
+    .filter((l): l is string => Boolean(l))
   return Array.from(new Set([url, ...links])) // homepage first, deduped
 }
 
@@ -265,8 +298,8 @@ export function auditSite(url: string, s: Scrape, effort: string): string {
   return lines.join('\n')
 }
 
-async function claimOldest(): Promise<StoredTask | null> {
-  const res = await sb(`loop_task_handoffs?select=*&status=in.(${CLAIMABLE.join(',')})&order=created_at.asc&limit=15`)
+async function claimOldest(workspace_id: string): Promise<StoredTask | null> {
+  const res = await sb(`loop_task_handoffs?select=*&workspace_id=eq.${workspace_id}&status=in.(${CLAIMABLE.join(',')})&order=created_at.asc&limit=15`)
   const rows = (await res.json()) as StoredTask[]
   // Priority ordering: urgent → high → normal, keeping FIFO within a priority
   // (Array.sort is stable, so the created_at.asc order is preserved per bucket).
@@ -274,8 +307,8 @@ async function claimOldest(): Promise<StoredTask | null> {
   rows.sort((a, b) => (rank[a.priority ?? 'normal'] ?? 3) - (rank[b.priority ?? 'normal'] ?? 3))
   for (const row of rows) {
     // Atomic claim: only one worker wins the guarded PATCH.
-    const claimed = await patchTask(row.task_id, row.status, { status: 'accepted', claimed_at: new Date().toISOString() })
-    if (claimed) { await event(row.task_id, 'accepted', 'Worker claimed the task from the queue.', { worker: 'vercel-cron' }); return claimed }
+    const claimed = await patchTask(workspace_id, row.task_id, row.status, { status: 'accepted', claimed_at: new Date().toISOString() })
+    if (claimed) { await event(workspace_id, row.task_id, 'accepted', 'Worker claimed the task from the queue.', { worker: 'vercel-cron' }); return claimed }
   }
   return null
 }
@@ -287,9 +320,9 @@ function metaStr(task: StoredTask, key: string): string {
 
 // Reaper: a task claimed but never finished (worker crashed / timed out mid-run)
 // stays stuck in accepted/running forever. Re-queue anything claimed > 3 min ago.
-async function requeueStale(): Promise<{ requeued: number; deadLettered: number }> {
+async function requeueStale(workspace_id: string): Promise<{ requeued: number; deadLettered: number }> {
   const cutoff = new Date(Date.now() - 3 * 60 * 1000).toISOString()
-  const res = await sb(`loop_task_handoffs?select=*&status=in.(accepted,running)&claimed_at=lt.${encodeURIComponent(cutoff)}&limit=20`)
+  const res = await sb(`loop_task_handoffs?select=*&workspace_id=eq.${workspace_id}&status=in.(accepted,running)&claimed_at=lt.${encodeURIComponent(cutoff)}&limit=20`)
   const rows = (await res.json()) as StoredTask[]
   let requeued = 0, deadLettered = 0
   for (const r of rows) {
@@ -297,11 +330,11 @@ async function requeueStale(): Promise<{ requeued: number; deadLettered: number 
     const attempts = (typeof meta.requeues === 'number' ? meta.requeues : 0) + 1
     if (attempts > 3) {
       // Dead-letter: stop retrying and surface for a human instead of looping.
-      const ok = await patchTask(r.task_id, r.status, { status: 'needs_review', error: 'Repeatedly stalled — dead-lettered after 3 retries.', metadata: { ...meta, requeues: attempts } })
-      if (ok) { deadLettered++; await event(r.task_id, 'needs_review', 'Task stalled 3+ times and was moved to needs-review (dead-letter).', {}); await telegram(`⛔ Dead-letter — task stalled repeatedly:\n${shorten(r.task)}`) }
+      const ok = await patchTask(workspace_id, r.task_id, r.status, { status: 'needs_review', error: 'Repeatedly stalled — dead-lettered after 3 retries.', metadata: { ...meta, requeues: attempts } })
+      if (ok) { deadLettered++; await event(workspace_id, r.task_id, 'needs_review', 'Task stalled 3+ times and was moved to needs-review (dead-letter).', {}); await telegram(`⛔ Dead-letter — task stalled repeatedly:\n${shorten(r.task)}`) }
     } else {
-      const ok = await patchTask(r.task_id, r.status, { status: 'delivered', metadata: { ...meta, requeues: attempts } })
-      if (ok) { requeued++; await event(r.task_id, 'requeued', `Task was stuck in progress and has been re-queued (attempt ${attempts}).`, {}) }
+      const ok = await patchTask(workspace_id, r.task_id, r.status, { status: 'delivered', metadata: { ...meta, requeues: attempts } })
+      if (ok) { requeued++; await event(workspace_id, r.task_id, 'requeued', `Task was stuck in progress and has been re-queued (attempt ${attempts}).`, {}) }
     }
   }
   return { requeued, deadLettered }
@@ -309,8 +342,8 @@ async function requeueStale(): Promise<{ requeued: number; deadLettered: number 
 
 // How many prior completed audits exist for a domain (built forward from when
 // per-domain history shipped — matches on metadata.domain).
-async function priorAudits(domain: string): Promise<{ count: number; lastAt: string | null }> {
-  const res = await sb(`loop_task_handoffs?select=completed_at&status=eq.done&metadata->>domain=eq.${encodeURIComponent(domain)}&order=completed_at.desc&limit=50`)
+async function priorAudits(workspace_id: string, domain: string): Promise<{ count: number; lastAt: string | null }> {
+  const res = await sb(`loop_task_handoffs?select=completed_at&workspace_id=eq.${workspace_id}&status=eq.done&metadata->>domain=eq.${encodeURIComponent(domain)}&order=completed_at.desc&limit=50`)
   const rows = await res.json() as Array<{ completed_at: string | null }>
   return { count: rows.length, lastAt: rows[0]?.completed_at || null }
 }
@@ -326,26 +359,26 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
   if (!url) {
     // No URL to audit — run the task through an LLM so it still gets a real answer.
     if (!OPENROUTER_API_KEY) {
-      await patchTask(task.task_id, 'accepted', { status: 'needs_review' })
-      await event(task.task_id, 'needs_review', 'No URL found and no LLM configured — needs a human or specialised agent.', {})
+      await patchTask(task.workspace_id, task.task_id, 'accepted', { status: 'needs_review' })
+      await event(task.workspace_id, task.task_id, 'needs_review', 'No URL found and no LLM configured — needs a human or specialised agent.', {})
       await telegram(`⚠️ Needs review — no URL in the task:\n${shorten(task.task)}`)
       return { taskId: task.task_id, status: 'needs_review' }
     }
-    if (!(await patchTask(task.task_id, 'accepted', { status: 'running' }))) return { taskId: task.task_id, status: 'lost' }
-    await event(task.task_id, 'running', 'No URL — running the task through an LLM…', {})
+    if (!(await patchTask(task.workspace_id, task.task_id, 'accepted', { status: 'running' }))) return { taskId: task.task_id, status: 'lost' }
+    await event(task.workspace_id, task.task_id, 'running', 'No URL — running the task through an LLM…', {})
     await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}`)
     try {
       let answer = await llmAnswer(task.task, metaStr(task, 'model'), effort, cost)
       if (ranAs) answer += `\n\nRan as: ${ranAs}.`
-      await event(task.task_id, 'result_ready', 'LLM response written to result_summary.', {})
-      await patchTask(task.task_id, 'running', { status: 'done', result_summary: answer, completed_at: new Date().toISOString(), metadata: withCost() })
-      await event(task.task_id, 'done', 'Task completed by the worker (LLM).', {})
+      await event(task.workspace_id, task.task_id, 'result_ready', 'LLM response written to result_summary.', {})
+      await patchTask(task.workspace_id, task.task_id, 'running', { status: 'done', result_summary: answer, completed_at: new Date().toISOString(), metadata: withCost() })
+      await event(task.workspace_id, task.task_id, 'done', 'Task completed by the worker (LLM).', {})
       await telegram(`✅ Done\n${shorten(task.task)}\n\n${answer}\n\nSee it on the dashboard → Task queue.`)
       return { taskId: task.task_id, status: 'done' }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      await patchTask(task.task_id, 'running', { status: 'failed', error: message })
-      await event(task.task_id, 'failed', `LLM run failed: ${message}`, {})
+      await patchTask(task.workspace_id, task.task_id, 'running', { status: 'failed', error: message })
+      await event(task.workspace_id, task.task_id, 'failed', `LLM run failed: ${message}`, {})
       await telegram(`❌ Failed\n${shorten(task.task)}\n${message}`)
       return { taskId: task.task_id, status: 'failed' }
     }
@@ -353,13 +386,13 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
 
   // Guard the claim: if the accepted→running PATCH returns null, another worker
   // (or the reaper) took this task — abort to avoid duplicate work/notifications.
-  if (!(await patchTask(task.task_id, 'accepted', { status: 'running' }))) return { taskId: task.task_id, status: 'lost' }
-  await event(task.task_id, 'running', `Fetching ${url} and analysing SEO/UX signals…`, {})
+  if (!(await patchTask(task.workspace_id, task.task_id, 'accepted', { status: 'running' }))) return { taskId: task.task_id, status: 'lost' }
+  await event(task.workspace_id, task.task_id, 'running', `Fetching ${url} and analysing SEO/UX signals…`, {})
   await telegram(`🔄 Working on it…${ranAs ? ` (${ranAs})` : ''}\n${shorten(task.task)}\n${url}`)
 
   if (!FIRECRAWL_API_KEY) {
-    await patchTask(task.task_id, 'running', { status: 'failed', error: 'FIRECRAWL_API_KEY not set' })
-    await event(task.task_id, 'failed', 'Scraper not configured (FIRECRAWL_API_KEY missing).', {})
+    await patchTask(task.workspace_id, task.task_id, 'running', { status: 'failed', error: 'FIRECRAWL_API_KEY not set' })
+    await event(task.workspace_id, task.task_id, 'failed', 'Scraper not configured (FIRECRAWL_API_KEY missing).', {})
     return { taskId: task.task_id, status: 'failed' }
   }
 
@@ -370,7 +403,7 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
   try {
     if (wantsSite) {
       const pages = (await firecrawlMap(url, cost)).slice(0, 4) // cap to stay inside the time budget
-      await event(task.task_id, 'running', `Auditing ${pages.length} page(s) of the site…`, {})
+      await event(task.workspace_id, task.task_id, 'running', `Auditing ${pages.length} page(s) of the site…`, {})
       const parts = await Promise.all(pages.map(async (p) => {
         try { const sc = await firecrawl(p, cost); return `### ${p}\n${auditSite(p, sc, 'low')}` }
         catch (e) { return `### ${p}\n(could not audit: ${e instanceof Error ? e.message : String(e)})` }
@@ -399,7 +432,7 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
     try {
       const domain = new URL(url).hostname
       extraMeta.domain = domain
-      const prior = await priorAudits(domain)
+      const prior = await priorAudits(task.workspace_id, domain)
       const note = prior.count > 0
         ? `Audit #${prior.count + 1} of ${domain} — previous audit ${prior.lastAt ? `on ${prior.lastAt.slice(0, 10)}` : 'earlier'}. Compare to see if the site improved.`
         : `First tracked audit of ${domain}.`
@@ -408,15 +441,15 @@ async function processOne(task: StoredTask): Promise<{ taskId: string; status: s
     if (ranAs) summary += `\n\nRan as: ${ranAs}.`
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    await patchTask(task.task_id, 'running', { status: 'failed', error: message })
-    await event(task.task_id, 'failed', `Could not fetch/analyse the page: ${message}`, {})
+    await patchTask(task.workspace_id, task.task_id, 'running', { status: 'failed', error: message })
+    await event(task.workspace_id, task.task_id, 'failed', `Could not fetch/analyse the page: ${message}`, {})
     await telegram(`❌ Failed — ${url}\n${shorten(task.task)}\n${message}`)
     return { taskId: task.task_id, status: 'failed' }
   }
 
-  await event(task.task_id, 'result_ready', 'Audit complete — result written to result_summary.', {})
-  await patchTask(task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString(), metadata: withCost() })
-  await event(task.task_id, 'done', 'Task completed by the worker.', {})
+  await event(task.workspace_id, task.task_id, 'result_ready', 'Audit complete — result written to result_summary.', {})
+  await patchTask(task.workspace_id, task.task_id, 'running', { status: 'done', result_summary: summary, completed_at: new Date().toISOString(), metadata: withCost() })
+  await event(task.workspace_id, task.task_id, 'done', 'Task completed by the worker.', {})
   await telegram(`✅ Done — ${url}\n\n${summary}\n\nSee the full process on the dashboard → Task queue.`)
   return { taskId: task.task_id, status: 'done' }
 }
@@ -441,20 +474,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(401).json({ ok: false, message: 'Unauthorized worker call.' })
     return
   }
+  const workspaceId = workspaceForWorker(req)
+  if (!workspaceId) {
+    res.status(403).json({ ok: false, message: 'Worker workspace is not configured.' })
+    return
+  }
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     res.status(500).json({ ok: false, message: 'Supabase env missing.' })
     return
   }
 
   try {
-    const { requeued, deadLettered } = await requeueStale()
+    const { requeued, deadLettered } = await requeueStale(workspaceId)
     // Batch: claim up to 3 tasks (claims are fast atomic PATCHes), then process
     // them concurrently — the slow part (scrape + LLM) runs in parallel, so a
     // 3-task batch finishes in ~1× instead of ~3× and stays well inside the 60s cap.
-    const BATCH = 3
+    const requestedBatch = Number(process.env.WORKER_BATCH_SIZE || 2)
+    const BATCH = Number.isFinite(requestedBatch) ? Math.max(1, Math.min(3, Math.floor(requestedBatch))) : 2
     const claimed: StoredTask[] = []
     for (let i = 0; i < BATCH; i++) {
-      const task = await claimOldest()
+      const task = await claimOldest(workspaceId)
       if (!task) break
       claimed.push(task)
     }

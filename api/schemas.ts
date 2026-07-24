@@ -76,7 +76,7 @@ export type OrchestratorEvent = z.infer<typeof OrchestratorEventSchema>
 
 // ── orchestrator API actions ──────────────────────────────────
 
-const IdSchema = z.string().min(1).max(80)
+const IdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/)
 const ShortTextSchema = z.string().max(500)
 const MetadataSchema = z.record(z.string(), z.unknown())
 
@@ -98,6 +98,7 @@ export const OrchestratorActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('lease'), workerId: IdSchema, agentIds: z.array(IdSchema).max(20).optional() }),
   z.object({
     action: z.literal('workerEvent'),
+    workerId: IdSchema,
     runId: IdSchema,
     assignmentId: IdSchema.optional(),
     agentId: IdSchema.optional(),
@@ -108,6 +109,7 @@ export const OrchestratorActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.enum(['complete', 'fail', 'needsReview', 'blocked']),
     assignmentId: IdSchema,
+    workerId: IdSchema,
     output: MetadataSchema.optional(),
     summary: z.string().max(4000).optional(),
     error: z.string().max(4000).optional(),

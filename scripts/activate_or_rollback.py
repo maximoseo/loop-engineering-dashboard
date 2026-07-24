@@ -60,23 +60,37 @@ def revert_change(proposal: dict, snap_path: str) -> None:
         target.unlink()
 
 
+def transition(proposal: dict, expected: str, next_status: str, action: str, reason: str,
+               eval_summary: dict, snap_path: str | None = None) -> None:
+    result = db.rpc(
+        "transition_loop_proposal",
+        {
+            "p_workspace_id": db.workspace_id(),
+            "p_proposal_id": proposal["proposal_id"],
+            "p_expected_status": expected,
+            "p_next_status": next_status,
+            "p_action": action,
+            "p_reason": reason[:300],
+            "p_snapshot_path": snap_path,
+            "p_eval_summary": eval_summary,
+        },
+    )
+    if result != "applied":
+        raise db.DbError(f"proposal transition failed: {result}")
+    proposal["status"] = next_status
+    proposal["eval_summary"] = eval_summary
+
+
 def activate(proposal: dict, eval_summary: dict, via: str) -> None:
     snap_path = snapshot(proposal)
     apply_change(proposal)
-    db.update(
-        "loop_proposals",
-        f"proposal_id=eq.{proposal['proposal_id']}",
-        {"status": "active", "eval_summary": eval_summary, "activated_at": now_iso()},
-    )
-    db.insert(
-        "loop_activations",
-        {
-            "proposal_id": proposal["proposal_id"],
-            "action": "activated",
-            "reason": via,
-            "snapshot_path": snap_path,
-        },
-    )
+    try:
+        transition(proposal, proposal["status"], "active", "activated", via, eval_summary, snap_path)
+    except Exception:
+        # Filesystems and Postgres cannot share a transaction. Restore the exact
+        # snapshot when the atomic DB state/audit transition does not commit.
+        revert_change(proposal, snap_path)
+        raise
     log(f"activate: {proposal['proposal_id']} applied to {proposal['target']} ({via})")
 
 
@@ -90,25 +104,30 @@ def rollback(proposal_id: str, reason: str) -> bool:
     if not Path(snap_path).exists():
         log(f"rollback: no snapshot for {proposal_id}")
         return False
+    active_target = Path(proposal["target"])
+    active_existed = active_target.exists()
+    active_content = active_target.read_text(encoding="utf-8") if active_existed else ""
     revert_change(proposal, snap_path)
     summary = dict(proposal.get("eval_summary") or {})
     summary["rolled_back_reason"] = reason[:200]
-    db.update(
-        "loop_proposals",
-        f"proposal_id=eq.{proposal_id}",
-        {"status": "rolled_back", "eval_summary": summary, "rolled_back_at": now_iso()},
-    )
-    db.insert(
-        "loop_activations",
-        {"proposal_id": proposal_id, "action": "rolled_back", "reason": reason[:300], "snapshot_path": snap_path},
-    )
+    try:
+        transition(proposal, "active", "rolled_back", "rolled_back", reason, summary, snap_path)
+    except Exception as exc:
+        # DB did not commit the rollback; restore the active file to match DB.
+        if active_existed:
+            active_target.parent.mkdir(parents=True, exist_ok=True)
+            active_target.write_text(active_content, encoding="utf-8")
+        elif active_target.exists():
+            active_target.unlink()
+        log(f"rollback: compensated file after DB failure for {proposal_id}: {exc}")
+        return False
     db.run_sql(
         f"""
-        insert into public.loop_failure_patterns (pattern_key, description, severity, examples)
-        values ({db.sql_literal('failed-proposal-' + proposal_id)},
+        insert into public.loop_failure_patterns (workspace_id, pattern_key, description, severity, examples)
+        values ({db.sql_literal(db.workspace_id())}, {db.sql_literal('failed-proposal-' + proposal_id)},
                 {db.sql_literal('Rolled back: ' + reason[:150])}, 'high',
                 {db.sql_literal([proposal_id])})
-        on conflict (pattern_key) do update set frequency = public.loop_failure_patterns.frequency + 1, last_seen = now();
+        on conflict (workspace_id, pattern_key) do update set frequency = public.loop_failure_patterns.frequency + 1, last_seen = now();
         """
     )
     log(f"rollback: {proposal_id} reverted ({reason})")
@@ -125,29 +144,20 @@ def process_proposed() -> int:
     for proposal in proposals:
         pid = proposal["proposal_id"]
         if not is_whitelisted(proposal["target"]):
-            db.update("loop_proposals", f"proposal_id=eq.{pid}", {"status": "pending_approval"})
-            db.insert(
-                "loop_activations",
-                {"proposal_id": pid, "action": "pending_approval", "reason": "target requires human application"},
-            )
+            transition(proposal, "proposed", "pending_approval", "pending_approval",
+                       "target requires human application", dict(proposal.get("eval_summary") or {}))
             log(f"activate: {pid} -> pending_approval (manual target)")
             handled += 1
             continue
 
         if proposal.get("eval_required", True):
             db.update("loop_proposals", f"proposal_id=eq.{pid}", {"status": "testing"})
+            proposal["status"] = "testing"
             db.set_loop_state("testing", active_proposal_id=pid)
             passed, summary = test_proposal(proposal)
             if not passed:
-                db.update(
-                    "loop_proposals",
-                    f"proposal_id=eq.{pid}",
-                    {"status": "rejected", "eval_summary": summary},
-                )
-                db.insert(
-                    "loop_activations",
-                    {"proposal_id": pid, "action": "rejected", "reason": summary.get("verdict", "")[:300]},
-                )
+                transition(proposal, "testing", "rejected", "rejected",
+                           summary.get("verdict", ""), summary)
                 log(f"activate: {pid} rejected ({summary.get('verdict')})")
                 handled += 1
                 continue
@@ -158,15 +168,8 @@ def process_proposed() -> int:
         if proposal["risk_level"] == "low":
             activate(proposal, summary, "auto (evals passed, low risk)")
         else:
-            db.update(
-                "loop_proposals",
-                f"proposal_id=eq.{pid}",
-                {"status": "pending_approval", "eval_summary": summary},
-            )
-            db.insert(
-                "loop_activations",
-                {"proposal_id": pid, "action": "pending_approval", "reason": f"risk={proposal['risk_level']}, evals passed"},
-            )
+            transition(proposal, proposal["status"], "pending_approval", "pending_approval",
+                       f"risk={proposal['risk_level']}, evals passed", summary)
             log(f"activate: {pid} -> pending_approval (risk {proposal['risk_level']})")
         handled += 1
     db.set_loop_state("monitoring")
@@ -180,16 +183,17 @@ def monitor() -> None:
         with recent_activations as (
           select a.proposal_id, a.created_at
           from public.loop_activations a
-          join public.loop_proposals p on p.proposal_id = a.proposal_id
-          where a.action = 'activated'
+          join public.loop_proposals p on p.workspace_id = a.workspace_id and p.proposal_id = a.proposal_id
+          where a.workspace_id = {db.sql_literal(db.workspace_id())}
+            and a.action = 'activated'
             and p.status = 'active'
             and a.created_at > now() - interval '{MONITOR_WINDOW_H} hours'
         )
         select ra.proposal_id,
-          (select avg(total) from public.loop_scores s where s.created_at < ra.created_at
+          (select avg(total) from public.loop_scores s where s.workspace_id = {db.sql_literal(db.workspace_id())} and s.created_at < ra.created_at
              and s.created_at > ra.created_at - interval '7 days') as before_avg,
-          (select avg(total) from public.loop_scores s where s.created_at >= ra.created_at) as after_avg,
-          (select count(*) from public.loop_scores s where s.created_at >= ra.created_at) as after_n
+          (select avg(total) from public.loop_scores s where s.workspace_id = {db.sql_literal(db.workspace_id())} and s.created_at >= ra.created_at) as after_avg,
+          (select count(*) from public.loop_scores s where s.workspace_id = {db.sql_literal(db.workspace_id())} and s.created_at >= ra.created_at) as after_n
         from recent_activations ra;
         """
     )

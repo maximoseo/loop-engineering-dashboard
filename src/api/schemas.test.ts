@@ -104,6 +104,7 @@ describe('OrchestratorActionSchema', () => {
   it('accepts bounded worker events', () => {
     expect(validate(OrchestratorActionSchema, {
       action: 'workerEvent',
+      workerId: 'worker-1',
       runId: 'run-1',
       eventType: 'output',
       message: 'Completed.',
@@ -113,6 +114,7 @@ describe('OrchestratorActionSchema', () => {
   it('rejects oversized worker output and invalid operator budgets', () => {
     expect(validate(OrchestratorActionSchema, {
       action: 'workerEvent',
+      workerId: 'worker-1',
       runId: 'run-1',
       eventType: 'output',
       message: 'x'.repeat(4001),

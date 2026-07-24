@@ -10,7 +10,7 @@ describe('llmModel', () => {
 })
 
 describe('firstUrl', () => {
-  const base = { task_id: 't', status: 'delivered' }
+  const base = { workspace_id: '00000000-0000-4000-8000-000000000001', task_id: 't', status: 'delivered' }
   it('prefers a contextUrl from metadata', () => {
     expect(firstUrl({ ...base, task: 'no url here', metadata: { contextUrl: 'https://a.com/' } })).toBe('https://a.com/')
   })
@@ -18,10 +18,15 @@ describe('firstUrl', () => {
     expect(firstUrl({ ...base, task: 'audit https://b.com/page for seo', metadata: null })).toBe('https://b.com/page')
   })
   it('ignores a non-http contextUrl and falls through to the text', () => {
-    expect(firstUrl({ ...base, task: 'see http://c.com', metadata: { contextUrl: 'not a url' } })).toBe('http://c.com')
+    expect(firstUrl({ ...base, task: 'see http://c.com', metadata: { contextUrl: 'not a url' } })).toBe('http://c.com/')
   })
   it('returns null when there is no URL', () => {
     expect(firstUrl({ ...base, task: 'write a poem', metadata: {} })).toBeNull()
+  })
+  it('rejects credentials and private-network targets', () => {
+    expect(firstUrl({ ...base, task: 'audit http://127.0.0.1/admin', metadata: {} })).toBeNull()
+    expect(firstUrl({ ...base, task: 'audit http://user:pass@example.com/', metadata: {} })).toBeNull()
+    expect(firstUrl({ ...base, task: 'audit http://192.168.1.2/', metadata: {} })).toBeNull()
   })
 })
 

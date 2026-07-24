@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto'
+
 export type AuthRequest = {
   headers: Record<string, string | string[] | undefined>
 }
@@ -41,6 +43,7 @@ export async function authenticateSupabaseUser(req: AuthRequest): Promise<Authen
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: anonKey, authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
     })
     if (!response.ok) return null
     const user = await response.json() as { id?: unknown; email?: unknown }
@@ -54,7 +57,14 @@ export async function authenticateSupabaseUser(req: AuthRequest): Promise<Authen
   }
 }
 
+function safeTokenEqual(actual: string | null | undefined, expected: string): boolean {
+  if (!actual) return false
+  const left = Buffer.from(actual)
+  const right = Buffer.from(expected)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
 export function workerTokenAuthorized(req: AuthRequest, token: string | undefined): boolean {
   if (!token) return false
-  return bearerToken(req) === token || requestHeader(req, 'x-worker-token') === token
+  return safeTokenEqual(bearerToken(req), token) || safeTokenEqual(requestHeader(req, 'x-worker-token'), token)
 }

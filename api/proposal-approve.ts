@@ -1,5 +1,6 @@
 import { allowlistedEmail, authenticateSupabaseUser, type AuthenticatedUser } from './_auth.js'
 import { ProposalApproveSchema, validate, type ProposalApprove } from './schemas.js'
+import { workspaceForUser } from './_workspace.js'
 
 /**
  * Proposal approval API — authenticated route for dashboard-based approval.
@@ -28,7 +29,8 @@ async function applyProposalDecision(
   decision: 'approved' | 'rejected',
   reason: string,
   actor: AuthenticatedUser,
-): Promise<'updated' | 'not_found' | 'not_pending' | 'failed'> {
+  workspaceId: string,
+): Promise<'updated' | 'not_found' | 'not_pending' | 'forbidden' | 'evaluation_required' | 'failed'> {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/apply_loop_proposal_decision`, {
     method: 'POST',
     headers: {
@@ -36,7 +38,9 @@ async function applyProposalDecision(
       authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       'content-type': 'application/json',
     },
+    signal: AbortSignal.timeout(8_000),
     body: JSON.stringify({
+      p_workspace_id: workspaceId,
       p_proposal_id: proposalId,
       p_decision: decision,
       p_reason: reason,
@@ -49,6 +53,8 @@ async function applyProposalDecision(
   if (result === 'applied') return 'updated'
   if (result === 'not_found') return 'not_found'
   if (result === 'not_pending') return 'not_pending'
+  if (result === 'forbidden') return 'forbidden'
+  if (result === 'evaluation_required') return 'evaluation_required'
   return 'failed'
 }
 
@@ -90,17 +96,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(400).json({ ok: false, message: 'proposalId and action are required.' })
     return
   }
+  const workspace = await workspaceForUser(req, session, true)
+  if (!workspace || !['owner', 'admin'].includes(workspace.role)) {
+    res.status(403).json({ ok: false, message: 'Workspace approval access is required.' })
+    return
+  }
 
   const newStatus = data.action === 'approved' ? 'active' : 'rejected'
 
   try {
-    const result = await applyProposalDecision(data.proposalId, data.action, data.reason ?? '', session)
+    const result = await applyProposalDecision(data.proposalId, data.action, data.reason ?? '', session, workspace.workspaceId)
     if (result === 'not_found') {
       res.status(404).json({ ok: false, message: 'Proposal not found.' })
       return
     }
     if (result === 'not_pending') {
       res.status(409).json({ ok: false, message: 'Proposal is no longer pending approval.' })
+      return
+    }
+    if (result === 'forbidden') {
+      res.status(403).json({ ok: false, message: 'Workspace approval access is required.' })
+      return
+    }
+    if (result === 'evaluation_required') {
+      res.status(409).json({ ok: false, message: 'Required evaluation evidence has not passed.' })
       return
     }
     if (result === 'failed') {
